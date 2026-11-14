@@ -4,7 +4,7 @@ Defines the relational tables, FTS5 virtual tables, triggers, and indexes
 for persistent projects, conversations, messages, memories, documents, and chunks.
 """
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 CORE_TABLES_DDL = """
 -- Schema Migrations Tracking
