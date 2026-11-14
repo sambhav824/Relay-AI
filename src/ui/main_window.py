@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import html
 import re
-from typing import List, Optional, Set, Union
+from typing import Any, List, Optional, Set, Union
 from unittest.mock import Mock, MagicMock
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QTextCursor
@@ -142,12 +144,24 @@ class ChatWorker(QThread):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, provider_manager: Optional[ProviderManager] = None, auto_discover: bool = False):
+    def __init__(
+        self,
+        provider_manager: Optional[ProviderManager] = None,
+        auto_discover: bool = False,
+        sync_worker: Optional[Any] = None,
+        auth_manager: Optional[Any] = None,
+        sync_queue: Optional[Any] = None,
+        context_repo: Optional[Any] = None,
+    ):
         super().__init__()
         self.dark = True
         self.worker: Optional[ChatWorker] = None
         self.routed_worker: Optional[RoutedChatWorker] = None
         self.discovery_worker: Optional[DiscoveryWorker] = None
+        self.sync_worker = sync_worker
+        self.auth_manager = auth_manager
+        self.sync_queue = sync_queue
+        self.context_repo = context_repo
         self._active_workers: Set[QThread] = set()
         self.current_session_id: int = 0
         self._is_canceling: bool = False
@@ -219,6 +233,12 @@ class MainWindow(QMainWindow):
             self.nav_buttons.append(button)
         side.addStretch()
 
+        self.sync_status_btn = QPushButton("☁️ Synced")
+        self.sync_status_btn.setObjectName("SyncStatusButton")
+        self.sync_status_btn.setToolTip("Cloud Sync: Up to date. Click to sync now.")
+        self.sync_status_btn.clicked.connect(self.trigger_sync_now)
+        side.addWidget(self.sync_status_btn)
+
         theme_btn = QPushButton("☼   Toggle appearance")
         theme_btn.clicked.connect(self.toggle_theme)
         side.addWidget(theme_btn)
@@ -232,6 +252,9 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(shell)
         self.apply_theme()
 
+        if self.sync_worker:
+            self._connect_sync_worker(self.sync_worker)
+
         if auto_discover:
             self.start_model_discovery()
 
@@ -244,6 +267,79 @@ class MainWindow(QMainWindow):
         self._active_workers.add(worker)
         worker.finished.connect(lambda w=worker: self._on_worker_finished(w))
         worker.start()
+
+    def _connect_sync_worker(self, worker: Any) -> None:
+        """Attach signal handlers to the active sync worker."""
+        self.sync_worker = worker
+        self._active_workers.add(worker)
+        if hasattr(worker, "queue_changed"):
+            worker.queue_changed.connect(self._on_sync_queue_changed)
+        if hasattr(worker, "item_synced"):
+            worker.item_synced.connect(self._on_sync_item_synced)
+        if hasattr(worker, "item_failed"):
+            worker.item_failed.connect(self._on_sync_item_failed)
+        if hasattr(worker, "sync_error"):
+            worker.sync_error.connect(self._on_sync_error)
+        if hasattr(worker, "finished"):
+            worker.finished.connect(lambda w=worker: self._on_worker_finished(w))
+        if hasattr(self.sync_queue, "pending_count"):
+            try:
+                self._update_sync_ui(status="synced", pending=self.sync_queue.pending_count())
+            except Exception:
+                pass
+
+    def trigger_sync_now(self) -> None:
+        """Manually trigger immediate sync and retry failed queue items."""
+        if self.sync_queue and hasattr(self.sync_queue, "retry_failed"):
+            try:
+                self.sync_queue.retry_failed()
+            except Exception:
+                pass
+        if self.sync_worker:
+            if hasattr(self.sync_worker, "trigger_sync"):
+                self.sync_worker.trigger_sync()
+            elif hasattr(self.sync_worker, "run_once"):
+                try:
+                    self.sync_worker.run_once()
+                except Exception:
+                    pass
+            self._update_sync_ui(status="syncing")
+
+    def _on_sync_queue_changed(self, pending_count: int) -> None:
+        if pending_count > 0:
+            self._update_sync_ui(status="syncing", pending=pending_count)
+        else:
+            self._update_sync_ui(status="synced", pending=0)
+
+    def _on_sync_item_synced(self, queue_id: str) -> None:
+        if self.sync_queue and hasattr(self.sync_queue, "pending_count"):
+            try:
+                count = self.sync_queue.pending_count()
+                if count == 0:
+                    self._update_sync_ui(status="synced", pending=0)
+            except Exception:
+                pass
+
+    def _on_sync_item_failed(self, queue_id: str, error: str) -> None:
+        self._update_sync_ui(status="error", error_msg=error)
+
+    def _on_sync_error(self, error: str) -> None:
+        self._update_sync_ui(status="error", error_msg=error)
+
+    def _update_sync_ui(self, status: str, pending: int = 0, error_msg: Optional[str] = None) -> None:
+        if not hasattr(self, "sync_status_btn") or not self.sync_status_btn:
+            return
+        if status == "syncing":
+            count_str = f" ({pending})" if pending > 0 else ""
+            self.sync_status_btn.setText(f"🔄 Syncing{count_str}")
+            self.sync_status_btn.setToolTip(f"Syncing with cloud... {pending} pending changes.")
+        elif status == "error":
+            self.sync_status_btn.setText("⚠️ Sync Error")
+            self.sync_status_btn.setToolTip(f"Sync error: {error_msg or 'Connection issue'}. Click to retry.")
+        else:
+            count_str = f" ({pending} pending)" if pending > 0 else ""
+            self.sync_status_btn.setText(f"☁️ Synced{count_str}")
+            self.sync_status_btn.setToolTip("Cloud Sync: All changes up to date. Click to sync now.")
 
     def page_base(self, title, subtitle):
         page = QWidget()
@@ -1127,6 +1223,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "teams_view") and self.teams_view:
             if self.teams_view._active_worker and isinstance(self.teams_view._active_worker, QThread):
                 workers_to_stop.add(self.teams_view._active_worker)
+        if hasattr(self, "sync_worker") and self.sync_worker and isinstance(self.sync_worker, QThread):
+            workers_to_stop.add(self.sync_worker)
 
         # 2. Disconnect worker signals so no queued events can reach destroyed widgets or window slots
         for w in workers_to_stop:
@@ -1149,6 +1247,12 @@ class MainWindow(QMainWindow):
             self.teams_view.cancel_team()
             if self.teams_view._active_worker and isinstance(self.teams_view._active_worker, QThread):
                 safely_anchor_worker(self.teams_view._active_worker)
+
+        if hasattr(self, "sync_worker") and self.sync_worker:
+            try:
+                self.sync_worker.close()
+            except Exception:
+                pass
 
         # 4. Bounded wait for threads to exit cooperatively
         for w in workers_to_stop:
