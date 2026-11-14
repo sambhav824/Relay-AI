@@ -31,10 +31,42 @@ def _migration_v1(conn: sqlite3.Connection) -> None:
     cursor.executescript(DEFAULT_DATA_DML)
 
 
+def _migration_v2(conn: sqlite3.Connection) -> None:
+    """Migration 2: Durable local outbox for cloud synchronization."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sync_queue (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            table_name TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            operation TEXT NOT NULL CHECK (operation IN ('INSERT','UPDATE','DELETE')),
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 5,
+            last_error TEXT,
+            status TEXT NOT NULL DEFAULT 'PENDING'
+                CHECK (status IN ('PENDING','IN_FLIGHT','FAILED','COMPLETED')),
+            locked_until REAL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sync_queue_status_created "
+        "ON sync_queue(status, created_at ASC)"
+    )
+
+
 MIGRATIONS: Dict[int, Tuple[str, Callable[[sqlite3.Connection], None]]] = {
     1: (
         "Initial UCE schema: projects, conversations, messages, memories, documents, chunks, and FTS5 indices",
         _migration_v1,
+    ),
+    2: (
+        "Durable local sync queue with retry state and lease recovery",
+        _migration_v2,
     ),
 }
 
