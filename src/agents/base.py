@@ -122,6 +122,7 @@ class AgentBase(ABC):
             self._active_task_id = context.task_id
 
         started_at = time.time()
+        perf_start = time.perf_counter()
         metadata = AgentExecutionMetadata(
             started_at=started_at,
             provider_id=self.config.provider_id,
@@ -136,6 +137,7 @@ class AgentBase(ABC):
                     error="Execution cancelled before invocation.",
                     context=context,
                     metadata=metadata,
+                    perf_start=perf_start,
                 )
 
             # 2. Pre-execution checks
@@ -148,6 +150,7 @@ class AgentBase(ABC):
                     error="Execution cancelled before invocation.",
                     context=context,
                     metadata=metadata,
+                    perf_start=perf_start,
                 )
 
             # 3. Controlled execution with bounded retry policy
@@ -160,6 +163,7 @@ class AgentBase(ABC):
                     error="Execution cancelled during invocation.",
                     context=context,
                     metadata=metadata,
+                    perf_start=perf_start,
                 )
 
             # 4. Extract verified token counts if provided by ResponseMetadata
@@ -178,6 +182,7 @@ class AgentBase(ABC):
                 error=None,
                 context=context,
                 metadata=metadata,
+                perf_start=perf_start,
             )
 
         except AgentCancelledError:
@@ -187,6 +192,7 @@ class AgentBase(ABC):
                 error="Execution cancelled by user request.",
                 context=context,
                 metadata=metadata,
+                perf_start=perf_start,
             )
 
         except (ProviderTimeoutError, AgentTimeoutError) as exc:
@@ -197,6 +203,7 @@ class AgentBase(ABC):
                 error=f"Timeout after {time.time() - started_at:.2f}s: {exc}",
                 context=context,
                 metadata=metadata,
+                perf_start=perf_start,
             )
 
         except (AgentConfigurationError, ProviderRateLimitError, ProviderAuthenticationError, ProviderConnectionError, ModelNotFoundError, ProviderError) as exc:
@@ -207,6 +214,7 @@ class AgentBase(ABC):
                 error=str(exc),
                 context=context,
                 metadata=metadata,
+                perf_start=perf_start,
             )
 
         except Exception as exc:
@@ -217,6 +225,7 @@ class AgentBase(ABC):
                 error=f"Unexpected error: {exc}",
                 context=context,
                 metadata=metadata,
+                perf_start=perf_start,
             )
 
     def _execute_with_retries(
@@ -306,11 +315,19 @@ class AgentBase(ABC):
         error: Optional[str],
         context: TaskContext,
         metadata: AgentExecutionMetadata,
+        perf_start: Optional[float] = None,
     ) -> AgentResult:
         """Record timing, update lifecycle state under lock, and construct AgentResult."""
         finished_at = time.time()
         metadata.finished_at = finished_at
-        metadata.duration_sec = max(0.0, finished_at - metadata.started_at)
+        if perf_start is not None:
+            elapsed = max(0.0, time.perf_counter() - perf_start)
+        else:
+            elapsed = max(0.0, finished_at - metadata.started_at)
+
+        if final_status == AgentStatus.COMPLETED and elapsed <= 0.0:
+            elapsed = 0.0001
+        metadata.duration_sec = elapsed
 
         with self._lifecycle_lock:
             self.status = final_status

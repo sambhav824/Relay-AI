@@ -46,7 +46,7 @@ class SyncQueueManager:
                 last_error TEXT,
                 status TEXT NOT NULL DEFAULT 'PENDING'
                     CHECK (status IN ('PENDING','IN_FLIGHT','FAILED','COMPLETED')),
-                locked_until REAL,
+                locked_until REAL
             )
             """
         )
@@ -148,7 +148,7 @@ class SyncQueueManager:
                 """SELECT id,user_id,table_name,record_id,operation,payload_json,
                           retry_count,max_retries
                    FROM sync_queue WHERE status='PENDING'
-                   ORDER BY created_at ASC LIMIT ?""",
+                   ORDER BY created_at ASC, rowid ASC LIMIT ?""",
                 (limit,),
             ).fetchall()
             ids = [row[0] for row in rows]

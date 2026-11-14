@@ -13,9 +13,11 @@ from src.context.db.connection import (
 )
 from src.context.db.migrations import MigrationManager
 from src.context.db.schema import SCHEMA_VERSION
+from src.context.repository import ContextRepository
 
 __all__ = [
     "ContextDatabase",
+    "ContextRepository",
     "MigrationManager",
     "SCHEMA_VERSION",
     "check_database_integrity",

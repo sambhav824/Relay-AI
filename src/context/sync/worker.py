@@ -61,10 +61,16 @@ class SyncWorker(QThread):
         self._client = http_client or httpx.Client(timeout=20.0)
         self._owns_client = http_client is None
         self._stop_event = threading.Event()
+        self._wake_event = threading.Event()
+
+    def trigger_sync(self) -> None:
+        """Wake worker thread immediately to process pending items or react to network restoration."""
+        self._wake_event.set()
 
     def stop(self) -> None:
         """Request graceful shutdown."""
         self._stop_event.set()
+        self._wake_event.set()
         self.requestInterruption()
 
     def close(self) -> None:
@@ -80,7 +86,8 @@ class SyncWorker(QThread):
             except Exception as exc:  # keep the worker alive after recoverable failures
                 logger.exception("Sync cycle failed")
                 self.sync_error.emit(str(exc))
-            self._stop_event.wait(self.poll_interval)
+            self._wake_event.wait(self.poll_interval)
+            self._wake_event.clear()
 
     def run_once(self) -> int:
         """Process one batch and return the number of successful uploads."""
@@ -169,4 +176,5 @@ class SyncWorker(QThread):
 
     def _backoff(self, retry_count: int) -> None:
         delay = min(30.0, 2.0 ** max(0, retry_count))
-        self._stop_event.wait(delay)
+        self._wake_event.wait(delay)
+        self._wake_event.clear()

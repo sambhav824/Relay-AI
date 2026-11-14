@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 import logging
 import threading
 import time
-from typing import Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from src.agents.base import AgentBase
 from src.agents.context import TaskContext
@@ -388,6 +390,7 @@ class WorkflowEngine:
         self._active_agent = agent
 
         started_at = time.time()
+        perf_start = time.perf_counter()
         record = StepExecutionRecord(
             step_id=step_cfg.step_id,
             agent_id=agent.agent_id,
@@ -405,7 +408,7 @@ class WorkflowEngine:
             if self._cancel_event.is_set():
                 record.status = AgentStatus.CANCELLED
                 record.finished_at = time.time()
-                record.duration_sec = max(0.0, record.finished_at - started_at)
+                record.duration_sec = max(0.0, time.perf_counter() - perf_start)
                 self._active_agent = None
                 return record
 
@@ -450,7 +453,10 @@ class WorkflowEngine:
                 time.sleep(0.5)
 
         record.finished_at = time.time()
-        record.duration_sec = max(0.0, record.finished_at - started_at)
+        elapsed = max(0.0, time.perf_counter() - perf_start)
+        if record.status == AgentStatus.COMPLETED and elapsed <= 0.0:
+            elapsed = 0.0001
+        record.duration_sec = elapsed
         record.status = last_result.status if last_result else AgentStatus.FAILED
         record.error = last_result.error if last_result else "Execution failed without result."
 
