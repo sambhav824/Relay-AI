@@ -46,7 +46,7 @@ class SyncQueueManager:
                 last_error TEXT,
                 status TEXT NOT NULL DEFAULT 'PENDING'
                     CHECK (status IN ('PENDING','IN_FLIGHT','FAILED','COMPLETED')),
-                locked_until REAL,
+                locked_until REAL
             )
             """
         )

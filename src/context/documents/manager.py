@@ -139,7 +139,7 @@ class DocumentManager:
                             operation="INSERT",
                             payload={"document_id": document_id, "chunk_index": chunk.index,
                                      "content": chunk.content, "metadata": chunk_metadata},
-                        )                    )
+                        )
         except Exception:
             if self.storage and storage_path:
                 try:
