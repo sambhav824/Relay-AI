@@ -55,7 +55,7 @@ class SupabaseDocumentStorage:
         name = PurePosixPath(file_name.replace("\\", "/")).name
         if not name or name in {".", ".."} or any(ord(c) < 32 for c in name):
             raise ValueError("Invalid file name")
-        return f"{owner}/{doc_id}/{quote(name, safe='._-')}"
+        return f"{owner}/{doc_id}/{name}"
 
     def _headers(self, *, content_type: Optional[str] = None) -> dict:
         headers = {
