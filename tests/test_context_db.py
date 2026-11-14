@@ -58,6 +58,7 @@ class TestContextDatabase(unittest.TestCase):
             "document_chunks",
             "chunks_fts",
             "memories_fts",
+            "sync_queue",
         ]
         for tbl in expected:
             self.assertIn(tbl, tables, f"Expected table {tbl} was not created.")
@@ -116,7 +117,7 @@ class TestContextDatabase(unittest.TestCase):
         self.assertEqual(v2, SCHEMA_VERSION)
 
         applied = mm.get_applied_versions()
-        self.assertEqual(len(applied), 1)
+        self.assertEqual(len(applied), 2)
         self.assertEqual(applied[0], SCHEMA_VERSION)
 
         db.close()
