@@ -35,7 +35,6 @@ class SyncQueueManager:
                 status TEXT NOT NULL DEFAULT 'PENDING'
                     CHECK (status IN ('PENDING','IN_FLIGHT','FAILED','COMPLETED')),
                 locked_until REAL,
-                UNIQUE(user_id, table_name, record_id)
             )
             """
         )
