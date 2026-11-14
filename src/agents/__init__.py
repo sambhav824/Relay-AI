@@ -19,6 +19,17 @@ from src.agents.models import (
     AgentStatus,
 )
 from src.agents.registry import AgentRegistry
+from src.agents.specialized import (
+    CreatorAgent,
+    CriticAgent,
+    FinalizerAgent,
+    PlanMilestone,
+    PlanOutput,
+    PlannerAgent,
+    ResearcherAgent,
+    ResearchOutput,
+    StructuredContractError,
+)
 
 __all__ = [
     "AgentBase",
@@ -36,5 +47,14 @@ __all__ = [
     "AgentCancelledError",
     "DuplicateAgentIdError",
     "AgentNotFoundError",
+    "PlannerAgent",
+    "ResearcherAgent",
+    "CreatorAgent",
+    "CriticAgent",
+    "FinalizerAgent",
+    "PlanMilestone",
+    "PlanOutput",
+    "ResearchOutput",
+    "StructuredContractError",
 ]
 

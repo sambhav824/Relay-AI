@@ -169,6 +169,8 @@ class AgentBase(ABC):
                 metadata.total_tokens = resp_meta.total_tokens
                 if hasattr(resp_meta, "critic_review"):
                     metadata.critic_review = getattr(resp_meta, "critic_review")
+                if hasattr(resp_meta, "extra") and resp_meta.extra:
+                    metadata.extra.update(resp_meta.extra)
 
             return self._finalize_result(
                 AgentStatus.COMPLETED,

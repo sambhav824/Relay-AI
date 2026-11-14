@@ -1,6 +1,6 @@
 import copy
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from src.agents.context import TaskContext
 from src.agents.models import AgentRole
@@ -48,6 +48,26 @@ class ContextTransferPipeline:
 
         if critic_review is not None:
             self.critic_feedback = critic_review
+
+    def clear_critic_feedback(self) -> None:
+        """Clear active critic review feedback once revisions have concluded."""
+        self.critic_feedback = None
+
+    def invalidate_step(self, step_id: str, role: Optional[AgentRole] = None) -> None:
+        """Remove recorded output for an invalidated step so stale outputs are not reused."""
+        self.accumulated_outputs.pop(step_id, None)
+        if role is not None:
+            self.accumulated_outputs.pop(role.value, None)
+
+    def invalidate_steps(
+        self,
+        step_ids: Set[str],
+        step_role_map: Optional[Dict[str, AgentRole]] = None,
+    ) -> None:
+        """Remove recorded outputs for multiple invalidated steps."""
+        for sid in step_ids:
+            role = step_role_map.get(sid) if step_role_map else None
+            self.invalidate_step(sid, role)
 
     def prepare_context_for_step(
         self,

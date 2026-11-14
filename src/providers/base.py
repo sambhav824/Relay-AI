@@ -34,6 +34,17 @@ class AIProvider(ABC):
         """Fetch available models from the provider."""
         pass
 
+    def has_credentials(self, credential_store: Optional[Any] = None) -> bool:
+        """Check whether valid credentials are configured without exposing secret values or making network calls."""
+        if self.is_local:
+            return True
+        if getattr(self, "_manual_api_key", None):
+            return bool(str(self._manual_api_key).strip())
+        store = getattr(self, "credential_store", None) or credential_store
+        if store and hasattr(store, "has_api_key"):
+            return bool(store.has_api_key(self.provider_id))
+        return False
+
     def normalize_messages(self, messages: List[Union[Message, Dict[str, Any]]]) -> List[Message]:
         """Helper to ensure all items in the messages list are standardized Message instances."""
         normalized: List[Message] = []

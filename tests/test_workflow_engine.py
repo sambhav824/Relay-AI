@@ -8,6 +8,7 @@ from src.agents import (
     AgentConfig,
     AgentRegistry,
     AgentRole,
+    AgentStatus,
     TaskContext,
 )
 from src.core.events import ResponseMetadata, StreamChunk
@@ -94,6 +95,30 @@ class ConcreteWorkflowAgent(AgentBase):
         if self.critic_review_to_attach and meta:
             meta.critic_review = self.critic_review_to_attach
         return output, meta
+
+
+class FunctionalWorkflowAgent(AgentBase):
+    """Agent whose behavior and metadata are driven dynamically by a callable for strict contract testing."""
+    def __init__(self, *args, response_fn=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.response_fn = response_fn
+        self.executed_contexts = []
+
+    def _run(self, context: TaskContext):
+        self.executed_contexts.append(context)
+        if self.response_fn:
+            output, review = self.response_fn(context)
+            meta = ResponseMetadata(
+                model=self.config.model_id,
+                provider_id=self.config.provider_id,
+                prompt_tokens=10,
+                completion_tokens=15,
+                total_tokens=25,
+            )
+            if review:
+                meta.critic_review = review
+            return output, meta
+        return super()._run(context)
 
 
 class TestWorkflowEngine(unittest.TestCase):
@@ -589,6 +614,323 @@ class TestWorkflowEngine(unittest.TestCase):
         user_msg = next(m.content for m in finalizer_call if m.role == MessageRole.USER)
         self.assertIn("Output from Provider A", user_msg)
         self.assertNotIn("Output from Provider B", user_msg)  # Filtered out cleanly!
+
+    def test_exact_critic_revision_downstream_invalidation_and_finalizer(self):
+        """Test exact prompt scenario:
+        1. Planner produces output A.
+        2. Creator consumes A and produces output B.
+        3. Independent Researcher produces R (situated in pipeline, depends only on Planner).
+        4. Critic reviews B and requests revision targeting Creator.
+        5. Creator executes again and produces revised output B2.
+        6. Independent Researcher is NOT repeated.
+        7. Finalizer consumes B2 and R, never stale B.
+        """
+        planner_calls = []
+        creator_calls = []
+        researcher_calls = []
+        critic_calls = []
+        finalizer_calls = []
+
+        def planner_run(ctx: TaskContext):
+            planner_calls.append(ctx)
+            return "Architecture Blueprint A", None
+
+        def creator_run(ctx: TaskContext):
+            creator_calls.append(ctx)
+            # Check if instructions contain critique feedback
+            if "CRITIQUE" in ctx.instructions:
+                return "Output B2: Secured with bcrypt", None
+            return "Output B: Plaintext passwords", None
+
+        def researcher_run(ctx: TaskContext):
+            researcher_calls.append(ctx)
+            return "Research Data R: Industry standards", None
+
+        def critic_run(ctx: TaskContext):
+            critic_calls.append(ctx)
+            creator_out = ctx.previous_outputs.get("step_create", "")
+            if "Plaintext" in creator_out:
+                review = CriticReviewResult(
+                    revision_required=True,
+                    feedback="Security flaw: Replace plaintext passwords with bcrypt",
+                    target_step_id="step_create",
+                    reason="Insecure password storage",
+                )
+                return "Critic Evaluation: Revision required", review
+            else:
+                review = CriticReviewResult(
+                    revision_required=False,
+                    feedback="Approved: Bcrypt hashing verified",
+                    target_step_id="step_create",
+                    reason="Secure",
+                )
+                return "Critic Evaluation: Approved", review
+
+        def finalizer_run(ctx: TaskContext):
+            finalizer_calls.append(ctx)
+            # Crucial verification: Finalizer must receive B2, never stale B
+            creator_val = ctx.previous_outputs.get("step_create", "")
+            if "Output B2" in creator_val and "Output B:" not in creator_val:
+                return f"Final Polish: Successfully integrated {creator_val}", None
+            return f"Final Polish Error: Stale or missing output ({creator_val})", None
+
+        # Build dynamic agents
+        dyn_planner = FunctionalWorkflowAgent(
+            agent_id="dyn_planner",
+            name="Planner",
+            role=AgentRole.PLANNER,
+            config=AgentConfig("provider_a", "model-1"),
+            response_fn=planner_run,
+            provider_manager=self.provider_mgr,
+        )
+        dyn_creator = FunctionalWorkflowAgent(
+            agent_id="dyn_creator",
+            name="Creator",
+            role=AgentRole.CREATOR,
+            config=AgentConfig("provider_b", "model-1"),
+            response_fn=creator_run,
+            provider_manager=self.provider_mgr,
+        )
+        dyn_researcher = FunctionalWorkflowAgent(
+            agent_id="dyn_researcher",
+            name="Researcher",
+            role=AgentRole.RESEARCHER,
+            config=AgentConfig("provider_a", "model-1"),
+            response_fn=researcher_run,
+            provider_manager=self.provider_mgr,
+        )
+        dyn_critic = FunctionalWorkflowAgent(
+            agent_id="dyn_critic",
+            name="Critic",
+            role=AgentRole.CRITIC,
+            config=AgentConfig("provider_c", "model-1"),
+            response_fn=critic_run,
+            provider_manager=self.provider_mgr,
+        )
+        dyn_finalizer = FunctionalWorkflowAgent(
+            agent_id="dyn_finalizer",
+            name="Finalizer",
+            role=AgentRole.FINALIZER,
+            config=AgentConfig("provider_c", "model-1"),
+            response_fn=finalizer_run,
+            provider_manager=self.provider_mgr,
+        )
+
+        reg = AgentRegistry()
+        reg.register(dyn_planner)
+        reg.register(dyn_creator)
+        reg.register(dyn_researcher)
+        reg.register(dyn_critic)
+        reg.register(dyn_finalizer)
+
+        config = WorkflowConfig(
+            workflow_id="wf_exact_scenario",
+            name="Exact Revision Verification",
+            max_steps=15,
+            max_revision_loops=2,
+            steps=[
+                WorkflowStepConfig(step_id="step_plan", agent_id="dyn_planner"),
+                WorkflowStepConfig(step_id="step_create", agent_id="dyn_creator", dependencies=["step_plan"]),
+                WorkflowStepConfig(step_id="step_research", agent_id="dyn_researcher", dependencies=["step_plan"]),  # Independent of creator!
+                WorkflowStepConfig(
+                    step_id="step_critic",
+                    agent_id="dyn_critic",
+                    is_critic_step=True,
+                    allowed_revision_targets=["step_create"],
+                    dependencies=["step_create"],
+                ),
+                WorkflowStepConfig(
+                    step_id="step_finalize",
+                    agent_id="dyn_finalizer",
+                    dependencies=["step_create", "step_research"],
+                ),
+            ],
+        )
+
+        engine = WorkflowEngine(config=config, registry=reg)
+        original_prompt = "Build an enterprise user account service"
+        original_history = [Message(MessageRole.USER, "Initial prompt"), Message(MessageRole.ASSISTANT, "Acknowledged")]
+        base_context = TaskContext(user_prompt=original_prompt, conversation_history=original_history)
+
+        result = engine.execute(base_context)
+
+        # 1. Workflow completes successfully
+        self.assertEqual(result.status, WorkflowStatus.COMPLETED)
+        self.assertTrue(result.is_success)
+
+        # 2. Final output contains B2 polish
+        self.assertIn("Successfully integrated Output B2: Secured with bcrypt", result.final_output)
+
+        # 3. Finalizer received B2, never stale B
+        self.assertEqual(len(finalizer_calls), 1)
+        finalizer_received_creator = finalizer_calls[0].previous_outputs.get("step_create")
+        self.assertEqual(finalizer_received_creator, "Output B2: Secured with bcrypt")
+
+        # 4. Independent step (Researcher) was executed ONCE only, not repeated!
+        self.assertEqual(len(researcher_calls), 1)
+
+        # 5. Planner was executed ONCE only
+        self.assertEqual(len(planner_calls), 1)
+
+        # 6. Creator executed TWICE (initial + 1 revision)
+        self.assertEqual(len(creator_calls), 2)
+        # First execution did not have critique instructions
+        self.assertNotIn("CRITIQUE", creator_calls[0].instructions)
+        # Second execution contained the exact critique feedback
+        self.assertIn("Replace plaintext passwords with bcrypt", creator_calls[1].instructions)
+
+        # 7. Critic executed TWICE (requested revision + approved)
+        self.assertEqual(len(critic_calls), 2)
+
+        # 8. All execution attempts accurately recorded
+        self.assertEqual(len(result.step_records), 7)
+        # step records order: plan, create(0), research, critic(req), create(1), critic(app), finalize
+        self.assertEqual(result.step_records[0].step_id, "step_plan")
+        self.assertEqual(result.step_records[1].step_id, "step_create")
+        self.assertEqual(result.step_records[1].revision_iteration, 0)
+        self.assertEqual(result.step_records[2].step_id, "step_research")
+        self.assertEqual(result.step_records[3].step_id, "step_critic")
+        self.assertEqual(result.step_records[4].step_id, "step_create")
+        self.assertEqual(result.step_records[4].revision_iteration, 1)
+        self.assertEqual(result.step_records[5].step_id, "step_critic")
+        self.assertEqual(result.step_records[6].step_id, "step_finalize")
+
+        # 9. Latest valid step outputs in WorkflowResult
+        self.assertEqual(result.step_outputs["step_create"], "Output B2: Secured with bcrypt")
+        self.assertEqual(result.step_outputs["step_research"], "Research Data R: Industry standards")
+        self.assertIn("Successfully integrated Output B2", result.step_outputs["step_finalize"])
+
+        # 10. Immutability of original objective and conversation history
+        self.assertEqual(base_context.user_prompt, original_prompt)
+        self.assertEqual(len(base_context.conversation_history), 2)
+        self.assertEqual(base_context.conversation_history[0].content, "Initial prompt")
+
+    def test_critic_revision_intermediate_downstream_invalidation(self):
+        """Test that an intermediate step depending on Creator is also invalidated and re-computed."""
+        formatter_calls = []
+
+        def creator_fn(ctx: TaskContext):
+            if "CRITIQUE" in ctx.instructions:
+                return "Raw Data B2", None
+            return "Raw Data B", None
+
+        def formatter_fn(ctx: TaskContext):
+            formatter_calls.append(ctx)
+            raw = ctx.previous_outputs.get("step_create", "")
+            return f"Formatted({raw})", None
+
+        def critic_fn(ctx: TaskContext):
+            fmt_out = ctx.previous_outputs.get("step_format", "")
+            if "Formatted(Raw Data B)" in fmt_out:
+                return "Need revision", CriticReviewResult(
+                    revision_required=True,
+                    feedback="Revise Raw Data",
+                    target_step_id="step_create",
+                )
+            return "Approved", CriticReviewResult(revision_required=False)
+
+        def finalizer_fn(ctx: TaskContext):
+            fmt_out = ctx.previous_outputs.get("step_format", "")
+            return f"Final: {fmt_out}", None
+
+        c_agent = FunctionalWorkflowAgent("c_ag", "Creator", AgentRole.CREATOR, AgentConfig("provider_b", "m1"), response_fn=creator_fn, provider_manager=self.provider_mgr)
+        f_agent = FunctionalWorkflowAgent("f_ag", "Formatter", AgentRole.CREATOR, AgentConfig("provider_b", "m1"), response_fn=formatter_fn, provider_manager=self.provider_mgr)
+        cr_agent = FunctionalWorkflowAgent("cr_ag", "Critic", AgentRole.CRITIC, AgentConfig("provider_c", "m1"), response_fn=critic_fn, provider_manager=self.provider_mgr)
+        fin_agent = FunctionalWorkflowAgent("fin_ag", "Finalizer", AgentRole.FINALIZER, AgentConfig("provider_c", "m1"), response_fn=finalizer_fn, provider_manager=self.provider_mgr)
+
+        reg = AgentRegistry()
+        reg.register(c_agent)
+        reg.register(f_agent)
+        reg.register(cr_agent)
+        reg.register(fin_agent)
+
+        config = WorkflowConfig(
+            workflow_id="wf_intermediate_inv",
+            name="Intermediate Invalidation",
+            steps=[
+                WorkflowStepConfig(step_id="step_create", agent_id="c_ag"),
+                WorkflowStepConfig(step_id="step_format", agent_id="f_ag", dependencies=["step_create"]),
+                WorkflowStepConfig(step_id="step_critic", agent_id="cr_ag", is_critic_step=True, allowed_revision_targets=["step_create"], dependencies=["step_format"]),
+                WorkflowStepConfig(step_id="step_finalize", agent_id="fin_ag", dependencies=["step_format"]),
+            ],
+        )
+        engine = WorkflowEngine(config, reg)
+        result = engine.execute(TaskContext(user_prompt="Format data"))
+
+        self.assertEqual(result.status, WorkflowStatus.COMPLETED)
+        # Formatter was executed TWICE: once for B, once for B2!
+        self.assertEqual(len(formatter_calls), 2)
+        self.assertEqual(formatter_calls[0].previous_outputs.get("step_create"), "Raw Data B")
+        self.assertEqual(formatter_calls[1].previous_outputs.get("step_create"), "Raw Data B2")
+        self.assertEqual(result.final_output, "Final: Formatted(Raw Data B2)")
+
+    def test_critic_revision_failed_target_step_follows_policy(self):
+        """Test that a failed revision step follows the configured failure policy (ABORT)."""
+        call_count = [0]
+
+        def flaky_creator(ctx: TaskContext):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return "Initial draft B", None
+            # On revision, provider crashes
+            raise ProviderError("Unrecoverable GPU out of memory on revision", provider_id="provider_b")
+
+        def critic_fn(ctx: TaskContext):
+            return "Revise", CriticReviewResult(
+                revision_required=True,
+                feedback="Needs polish",
+                target_step_id="step_flaky",
+            )
+
+        flaky_agent = FunctionalWorkflowAgent("flaky_ag", "Creator", AgentRole.CREATOR, AgentConfig("provider_b", "m1"), response_fn=flaky_creator, provider_manager=self.provider_mgr)
+        critic_agent = FunctionalWorkflowAgent("crit_ag", "Critic", AgentRole.CRITIC, AgentConfig("provider_c", "m1"), response_fn=critic_fn, provider_manager=self.provider_mgr)
+
+        reg = AgentRegistry()
+        reg.register(flaky_agent)
+        reg.register(critic_agent)
+
+        config = WorkflowConfig(
+            workflow_id="wf_rev_fail",
+            name="Revision Failure Test",
+            steps=[
+                WorkflowStepConfig(step_id="step_flaky", agent_id="flaky_ag", failure_policy=StepFailurePolicy.ABORT, max_retries=0),
+                WorkflowStepConfig(step_id="step_critic", agent_id="crit_ag", is_critic_step=True, allowed_revision_targets=["step_flaky"]),
+            ],
+        )
+        engine = WorkflowEngine(config, reg)
+        result = engine.execute(TaskContext(user_prompt="Task"))
+
+        # ABORT policy stops workflow on revision failure
+        self.assertEqual(result.status, WorkflowStatus.FAILED)
+        self.assertIn("step_flaky", result.failed_steps)
+        # Step records preserved: 1st create, 1st critic, 2nd create (failed)
+        self.assertEqual(len(result.step_records), 3)
+        self.assertEqual(result.step_records[2].status, AgentStatus.FAILED)
+        self.assertEqual(result.step_records[2].revision_iteration, 1)
+
+    def test_token_budget_post_request_detection_and_pre_request_enforcement(self):
+        """Verify token budget accounting: verified usage only, pre-request checks, and post-request detection."""
+        # Step 1 consumes 25 tokens. Budget is 20 tokens.
+        # Step 1 completes -> post-step check detects 25 > 20 and halts before Step 2.
+        config = WorkflowConfig(
+            workflow_id="wf_token_verify",
+            name="Token Verification",
+            token_budget=20,
+            steps=[
+                WorkflowStepConfig(step_id="step_1", agent_id="planner_agent"),  # prov_a returns 25 tokens
+                WorkflowStepConfig(step_id="step_2", agent_id="creator_agent"),
+            ],
+        )
+        engine = WorkflowEngine(config, self.registry)
+        result = engine.execute(TaskContext(user_prompt="Token query"))
+
+        self.assertEqual(result.status, WorkflowStatus.FAILED)
+        self.assertIn("token budget", result.error_summary.lower())
+        # Step 1 record exists with verified tokens = 25
+        self.assertEqual(len(result.step_records), 1)
+        self.assertEqual(result.step_records[0].result.metadata.total_tokens, 25)
+        # Step 2 never launched
+        self.assertEqual(len(self.prov_b.calls), 0)
 
 
 if __name__ == "__main__":

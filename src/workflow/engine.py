@@ -41,9 +41,19 @@ class WorkflowEngine:
     - Configurable failure handling policies (ABORT, RETRY, SKIP, FALLBACK).
     """
 
-    def __init__(self, config: WorkflowConfig, registry: AgentRegistry):
+    def __init__(
+        self,
+        config: WorkflowConfig,
+        registry: AgentRegistry,
+        on_step_start: Optional[Any] = None,
+        on_step_finish: Optional[Any] = None,
+        on_revision: Optional[Any] = None,
+    ):
         self.config = config
         self.registry = registry
+        self.on_step_start = on_step_start
+        self.on_step_finish = on_step_finish
+        self.on_revision = on_revision
 
         self._status: WorkflowStatus = WorkflowStatus.PENDING
         self._lifecycle_lock = threading.Lock()
@@ -170,6 +180,12 @@ class WorkflowEngine:
                 step_id = execution_queue[current_idx]
                 step_cfg = step_map[step_id]
 
+                # Check if independent step is already completed and was NOT invalidated by revision
+                if step_id in completed_step_ids:
+                    logger.info("Step '%s' is independent and already completed; skipping redundant re-execution.", step_id)
+                    current_idx += 1
+                    continue
+
                 # Check step dependencies
                 missing_deps = [dep for dep in step_cfg.dependencies if dep not in completed_step_ids]
                 if missing_deps:
@@ -190,12 +206,27 @@ class WorkflowEngine:
                 # Execute step
                 total_step_executions += 1
                 revision_iter = revision_counts.get(step_id, 0)
+
+                if self.on_step_start:
+                    try:
+                        agent_obj = self.registry.get(step_cfg.agent_id)
+                        agent_role = agent_obj.role if agent_obj else AgentRole.CUSTOM
+                        self.on_step_start(step_id, step_cfg.agent_id, agent_role, revision_iter)
+                    except Exception as exc:
+                        logger.error("Error in on_step_start callback: %s", exc)
+
                 step_record = self._execute_step(
                     step_cfg=step_cfg,
                     pipeline=pipeline,
                     revision_iter=revision_iter,
                 )
                 self._step_records.append(step_record)
+
+                if self.on_step_finish:
+                    try:
+                        self.on_step_finish(step_record)
+                    except Exception as exc:
+                        logger.error("Error in on_step_finish callback: %s", exc)
 
                 # Check wall-clock timeout and token budget post-step
                 if time.time() > deadline:
@@ -217,7 +248,12 @@ class WorkflowEngine:
 
                 if step_record.status == AgentStatus.FAILED:
                     handled = self._handle_step_failure(
-                        step_cfg, step_record, failed_step_ids, skipped_step_ids
+                        step_cfg,
+                        step_record,
+                        failed_step_ids,
+                        skipped_step_ids,
+                        completed_step_ids,
+                        pipeline,
                     )
                     if not handled:
                         return self._finalize_workflow(
@@ -251,9 +287,34 @@ class WorkflowEngine:
                                 self.config.max_revision_loops,
                                 review.reason,
                             )
-                            # Pipeline feedback to target step and insert into queue
-                            pipeline.record_step_output(step_id, step_record.agent_role, step_record.result.output if step_record.result else "", critic_review=review)
-                            # Re-insert target step and critic step into execution queue
+                            if self.on_revision:
+                                try:
+                                    self.on_revision(target, review.reason or "", review.feedback or "", cur_rev_count + 1)
+                                except Exception as exc:
+                                    logger.error("Error in on_revision callback: %s", exc)
+
+                            # Pipeline feedback to target step
+                            pipeline.record_step_output(
+                                step_id,
+                                step_record.agent_role,
+                                step_record.result.output if step_record.result else "",
+                                critic_review=review,
+                            )
+
+                            # Downstream dependency invalidation
+                            downstream = self._get_downstream_dependents(target)
+                            invalidated = {target} | downstream | {step_id}
+                            completed_step_ids.difference_update(invalidated)
+
+                            # Invalidate outputs in pipeline to prevent stale reuse
+                            role_map = {}
+                            for s in self.config.steps:
+                                ag = self.registry.get(s.agent_id)
+                                if ag:
+                                    role_map[s.step_id] = ag.role
+                            pipeline.invalidate_steps(invalidated, role_map)
+
+                            # Rewind queue to target step
                             target_idx = [i for i, sid in enumerate(execution_queue) if sid == target]
                             if target_idx:
                                 current_idx = target_idx[0]
@@ -264,6 +325,10 @@ class WorkflowEngine:
                                 self.config.max_revision_loops,
                                 target,
                             )
+                            pipeline.clear_critic_feedback()
+                    else:
+                        # Critic approved without revision; clear active feedback
+                        pipeline.clear_critic_feedback()
 
                 # Accumulate step output into context pipeline
                 output_text = step_record.result.output if step_record.result else ""
@@ -271,9 +336,16 @@ class WorkflowEngine:
                 current_idx += 1
 
             # Determine final status
-            final_status = WorkflowStatus.COMPLETED
-            if failed_step_ids or skipped_step_ids:
+            unfinished_required = [
+                s.step_id for s in self.config.steps
+                if not s.is_optional and s.step_id not in completed_step_ids
+            ]
+            if unfinished_required or failed_step_ids:
+                final_status = WorkflowStatus.PARTIAL_SUCCESS if completed_step_ids else WorkflowStatus.FAILED
+            elif skipped_step_ids:
                 final_status = WorkflowStatus.PARTIAL_SUCCESS
+            else:
+                final_status = WorkflowStatus.COMPLETED
 
             return self._finalize_workflow(
                 final_status,
@@ -340,8 +412,16 @@ class WorkflowEngine:
             attempts += 1
             record.attempt_count = attempts
 
-            # Prepare defensive step context
-            feedback_str = pipeline.critic_feedback.feedback if (pipeline.critic_feedback and revision_iter > 0) else None
+            # Prepare defensive step context incorporating revision feedback if targeted
+            feedback_str = None
+            if (
+                pipeline.critic_feedback
+                and pipeline.critic_feedback.revision_required
+                and pipeline.critic_feedback.target_step_id == step_cfg.step_id
+                and revision_iter > 0
+            ):
+                feedback_str = pipeline.critic_feedback.feedback
+
             step_context = pipeline.prepare_context_for_step(
                 step_config=step_cfg,
                 cancel_event=self._cancel_event,
@@ -391,6 +471,8 @@ class WorkflowEngine:
         record: StepExecutionRecord,
         failed_steps: List[str],
         skipped_steps: List[str],
+        completed_step_ids: Set[str],
+        pipeline: ContextTransferPipeline,
     ) -> bool:
         """Apply the step's failure policy. Returns True if pipeline may continue, False to abort."""
         failed_steps.append(step_cfg.step_id)
@@ -418,11 +500,14 @@ class WorkflowEngine:
                     max_retries=0,
                 )
                 # Attempt fallback execution
-                fb_record = self._execute_step(fallback_cfg, ContextTransferPipeline(TaskContext()), 0)
+                fb_record = self._execute_step(fallback_cfg, pipeline, 0)
                 self._step_records.append(fb_record)
                 if fb_record.status == AgentStatus.COMPLETED:
                     if step_cfg.step_id in failed_steps:
                         failed_steps.remove(step_cfg.step_id)
+                    completed_step_ids.add(step_cfg.step_id)
+                    output_text = fb_record.result.output if fb_record.result else ""
+                    pipeline.record_step_output(step_cfg.step_id, fb_record.agent_role, output_text)
                     return True
                 return False
             return False
@@ -504,6 +589,26 @@ class WorkflowEngine:
                 workflow_id=self.config.workflow_id,
             )
 
+    def _get_downstream_dependents(self, target_step_id: str) -> Set[str]:
+        """Find all step IDs that directly or transitively depend on target_step_id."""
+        dependents: Set[str] = set()
+        to_check = [target_step_id]
+
+        while to_check:
+            current = to_check.pop()
+            for step in self.config.steps:
+                if step.step_id not in dependents and step.step_id != target_step_id:
+                    is_dep = (current in step.dependencies)
+                    if not is_dep and step.required_inputs:
+                        is_dep = (current in step.required_inputs)
+                    if not is_dep and step.is_critic_step and step.allowed_revision_targets:
+                        is_dep = (current in step.allowed_revision_targets)
+                    if is_dep:
+                        dependents.add(step.step_id)
+                        to_check.append(step.step_id)
+
+        return dependents
+
     def _finalize_workflow(
         self,
         final_status: WorkflowStatus,
@@ -538,15 +643,29 @@ class WorkflowEngine:
         tot_comp = sum(completion_tokens_list) if completion_tokens_list else None
         tot_tokens = sum(total_tokens_list) if total_tokens_list else None
 
-        # Determine final substantive output (prefer FINALIZER role, then last completed substantive step)
+        # Determine final substantive output (prefer FINALIZER, then CREATOR, then last non-critic step)
         final_out = ""
         for rec in reversed(self._step_records):
             if rec.status == AgentStatus.COMPLETED and rec.result and rec.result.output:
                 if rec.agent_role == AgentRole.FINALIZER:
                     final_out = rec.result.output
                     break
-                elif not final_out:
+                elif rec.agent_role == AgentRole.CREATOR and not final_out:
                     final_out = rec.result.output
+                elif not final_out and rec.agent_role != AgentRole.CRITIC:
+                    final_out = rec.result.output
+
+        if not final_out:
+            for rec in reversed(self._step_records):
+                if rec.status == AgentStatus.COMPLETED and rec.result and rec.result.output:
+                    final_out = rec.result.output
+                    break
+
+        # Collect latest valid step outputs only
+        step_outputs = {
+            k: v for k, v in pipeline.accumulated_outputs.items()
+            if k in {s.step_id for s in self.config.steps}
+        }
 
         with self._lifecycle_lock:
             self._status = final_status
@@ -566,4 +685,5 @@ class WorkflowEngine:
             failed_steps=list(failed_steps),
             skipped_steps=list(skipped_steps),
             error_summary=error,
+            step_outputs=step_outputs,
         )

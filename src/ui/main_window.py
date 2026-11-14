@@ -22,6 +22,7 @@ from src.routing.types import NoEligibleModelsError, RoutingStrategy, TaskType
 from src.routing.worker import RoutedChatWorker
 from src.ui.compare_view import ComparisonView
 from src.ui.routing_pill import RoutingStatusPill
+from src.ui.teams import AITeamsView, safely_anchor_worker
 
 DARK = """
 QMainWindow, QWidget { background: #111318; color: #E8EAF0; font-family: 'Segoe UI', sans-serif; }
@@ -201,17 +202,21 @@ class MainWindow(QMainWindow):
         side.addSpacing(16)
 
         self.stack = QStackedWidget()
+        self.teams_view: Optional[AITeamsView] = None
         pages = [
             ("⌂   Dashboard", self.dashboard_page()),
             ("✧   AI Chat", self.chat_page()),
+            ("👥   AI Teams", self.teams_page()),
             ("▦   Model Manager", self.model_manager_page()),
             ("◷   Chat History", self.simple_page("Chat History", "Persistent SQLite conversation history is planned in a future milestone.")),
             ("⚙   Settings", self.settings_page()),
         ]
+        self.nav_buttons = []
         for label, page in pages:
             button = QPushButton(label)
             button.clicked.connect(lambda checked=False, p=page: self.stack.setCurrentWidget(p))
             side.addWidget(button)
+            self.nav_buttons.append(button)
         side.addStretch()
 
         theme_btn = QPushButton("☼   Toggle appearance")
@@ -458,6 +463,19 @@ class MainWindow(QMainWindow):
 
         page_layout.addWidget(input_container, 0)
 
+        self.stack.addWidget(page)
+        return page
+
+    def teams_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.teams_view = AITeamsView(
+            provider_manager=self.provider_manager,
+            dark=self.dark,
+            parent=page,
+        )
+        layout.addWidget(self.teams_view)
         self.stack.addWidget(page)
         return page
 
@@ -1106,6 +1124,9 @@ class MainWindow(QMainWindow):
             for cw in self.comparison_coordinator.workers.values():
                 if isinstance(cw, QThread):
                     workers_to_stop.add(cw)
+        if hasattr(self, "teams_view") and self.teams_view:
+            if self.teams_view._active_worker and isinstance(self.teams_view._active_worker, QThread):
+                workers_to_stop.add(self.teams_view._active_worker)
 
         # 2. Disconnect worker signals so no queued events can reach destroyed widgets or window slots
         for w in workers_to_stop:
@@ -1123,6 +1144,11 @@ class MainWindow(QMainWindow):
 
         if self.comparison_coordinator and self.comparison_coordinator.is_running():
             self.comparison_coordinator.cancel_all(wait_ms=0)
+
+        if hasattr(self, "teams_view") and self.teams_view:
+            self.teams_view.cancel_team()
+            if self.teams_view._active_worker and isinstance(self.teams_view._active_worker, QThread):
+                safely_anchor_worker(self.teams_view._active_worker)
 
         # 4. Bounded wait for threads to exit cooperatively
         for w in workers_to_stop:
@@ -1398,6 +1424,8 @@ class MainWindow(QMainWindow):
             self.compare_view.apply_theme(self.dark)
         if hasattr(self, "routing_pill"):
             self.routing_pill.apply_theme(self.dark)
+        if hasattr(self, "teams_view") and self.teams_view:
+            self.teams_view.set_dark_theme(self.dark)
         if self.messages or self.assistant_buffer:
             self.render_transcript()
 

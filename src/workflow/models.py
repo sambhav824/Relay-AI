@@ -129,8 +129,17 @@ class WorkflowResult:
     failed_steps: List[str] = field(default_factory=list)
     skipped_steps: List[str] = field(default_factory=list)
     error_summary: Optional[str] = None
+    step_outputs: Dict[str, str] = field(default_factory=dict)
 
     @property
     def is_success(self) -> bool:
         """Indicates whether the workflow reached an acceptable completion state."""
         return self.status in (WorkflowStatus.COMPLETED, WorkflowStatus.PARTIAL_SUCCESS)
+
+    @property
+    def is_timeout(self) -> bool:
+        """Indicates whether the workflow execution failed specifically due to a global timeout."""
+        return (
+            self.status == WorkflowStatus.FAILED
+            and bool(self.error_summary and "workflow exceeded global timeout" in self.error_summary.lower())
+        )
