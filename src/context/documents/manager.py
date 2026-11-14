@@ -111,6 +111,17 @@ class DocumentManager:
                      digest, size, mime_type, extracted.page_count, "INDEXED",
                      json.dumps(metadata, separators=(",", ":"))),
                 )
+                # Queue the parent document before chunks to preserve remote FK order.
+                if self.sync_queue:
+                    self.sync_queue.stage(
+                        user_id=self.user_id, table_name="documents", record_id=document_id,
+                        operation="INSERT",
+                        payload={"project_id": None if project_id == "global" else project_id,
+                                 "file_name": path.name, "storage_path": storage_path or "",
+                                 "file_hash": digest, "mime_type": mime_type,
+                                 "file_size_bytes": size, "status": "INDEXED",
+                                 "metadata": metadata},
+                    )
                 for chunk in chunks:
                     chunk_id = str(uuid.uuid4())
                     chunk_metadata = {**chunk.metadata, "owner_user_id": self.user_id}
@@ -128,17 +139,7 @@ class DocumentManager:
                             operation="INSERT",
                             payload={"document_id": document_id, "chunk_index": chunk.index,
                                      "content": chunk.content, "metadata": chunk_metadata},
-                        )
-                if self.sync_queue:
-                    self.sync_queue.stage(
-                        user_id=self.user_id, table_name="documents", record_id=document_id,
-                        operation="INSERT",
-                        payload={"project_id": None if project_id == "global" else project_id,
-                                 "file_name": path.name, "storage_path": storage_path or "",
-                                 "file_hash": digest, "mime_type": mime_type,
-                                 "file_size_bytes": size, "status": "INDEXED",
-                                 "metadata": metadata},
-                    )
+                        )                    )
         except Exception:
             if self.storage and storage_path:
                 try:
