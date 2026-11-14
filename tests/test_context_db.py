@@ -118,7 +118,7 @@ class TestContextDatabase(unittest.TestCase):
 
         applied = mm.get_applied_versions()
         self.assertEqual(len(applied), 2)
-        self.assertEqual(applied[0], SCHEMA_VERSION)
+        self.assertEqual(applied[-1], SCHEMA_VERSION)
 
         db.close()
 
