@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import uuid
+from functools import wraps
 from typing import Any, Dict, List, Optional
+
+
+def _serialized(method):
+    """Serialize access to the shared SQLite connection across UI/worker threads."""
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
 
 
 class SyncQueueManager:
@@ -18,6 +29,7 @@ class SyncQueueManager:
 
     def __init__(self, connection: sqlite3.Connection) -> None:
         self.connection = connection
+        self._lock = threading.RLock()
         self.connection.execute(
             """
             CREATE TABLE IF NOT EXISTS sync_queue (
@@ -50,6 +62,7 @@ class SyncQueueManager:
             raise ValueError(f"Invalid {label}: {value!r}")
         return value
 
+    @_serialized
     def stage(
         self,
         *,
@@ -119,6 +132,7 @@ class SyncQueueManager:
             conn.execute("RELEASE SAVEPOINT sync_queue_stage")
             raise
 
+    @_serialized
     def claim_batch(self, limit: int = 20, lease_seconds: int = 120) -> List[Dict[str, Any]]:
         """Atomically claim pending or expired in-flight entries in creation order."""
         if limit < 1 or lease_seconds < 1:
@@ -160,10 +174,12 @@ class SyncQueueManager:
             conn.rollback()
             raise
 
+    @_serialized
     def mark_completed(self, queue_id: str) -> None:
         self.connection.execute("DELETE FROM sync_queue WHERE id=?", (queue_id,))
         self.connection.commit()
 
+    @_serialized
     def mark_failed(self, queue_id: str, error: str, *, retryable: bool) -> None:
         row = self.connection.execute(
             "SELECT retry_count,max_retries FROM sync_queue WHERE id=?", (queue_id,)
@@ -179,6 +195,7 @@ class SyncQueueManager:
         )
         self.connection.commit()
 
+    @_serialized
     def retry_failed(self, queue_id: Optional[str] = None) -> int:
         """Manually requeue failed items; returns the number changed."""
         if queue_id:
@@ -195,12 +212,14 @@ class SyncQueueManager:
         self.connection.commit()
         return cursor.rowcount
 
+    @_serialized
     def pending_count(self) -> int:
         row = self.connection.execute(
             "SELECT COUNT(*) FROM sync_queue WHERE status IN ('PENDING','IN_FLIGHT')"
         ).fetchone()
         return int(row[0])
 
+    @_serialized
     def failed_items(self) -> List[Dict[str, Any]]:
         rows = self.connection.execute(
             """SELECT id,user_id,table_name,record_id,operation,retry_count,last_error
