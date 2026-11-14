@@ -145,7 +145,7 @@ create table public.comparison_slots (
   response_text text,
   duration_ms double precision,
   token_count integer,
-  foreign key (comparison_id) references public.model_comparisons(id) on delete cascade,
+  foreign key (comparison_id, user_id) references public.model_comparisons(id, user_id) on delete cascade,
   unique (comparison_id, slot_index)
 );
 
