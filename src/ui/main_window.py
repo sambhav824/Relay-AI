@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import html
 import re
-from typing import List, Optional, Set, Union
+from typing import Any, List, Optional, Set, Union
 from unittest.mock import Mock, MagicMock
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from PySide6.QtGui import QTextCursor
