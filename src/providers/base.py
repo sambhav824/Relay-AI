@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Iterator, List, Union
+from typing import Any, Dict, Iterator, List, Optional, Union
 
 from src.core.events import StreamChunk
 from src.core.message import Message, MessageRole
