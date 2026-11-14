@@ -59,7 +59,8 @@ create table public.messages (
   latency_ms double precision check (latency_ms is null or latency_ms >= 0),
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  foreign key (conversation_id, user_id) references public.conversations(id, user_id) on delete cascade
+  foreign key (conversation_id, user_id) references public.conversations(id, user_id) on delete cascade,
+  unique (id, user_id)
 );
 
 create table public.memories (
@@ -132,7 +133,8 @@ create table public.model_comparisons (
   conversation_id uuid,
   prompt text not null,
   created_at timestamptz not null default now(),
-  foreign key (conversation_id, user_id) references public.conversations(id, user_id) on delete cascade
+  foreign key (conversation_id, user_id) references public.conversations(id, user_id) on delete cascade,
+  unique (id, user_id)
 );
 
 create table public.comparison_slots (
