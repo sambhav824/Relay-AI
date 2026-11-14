@@ -16,6 +16,12 @@ from src.context.sync.queue import SyncQueueManager
 
 logger = logging.getLogger(__name__)
 
+SYNC_TABLES = {
+    "profiles", "projects", "conversations", "messages", "memories",
+    "documents", "document_chunks", "smart_routing_logs",
+    "model_comparisons", "comparison_slots", "team_runs", "team_step_records",
+}
+
 
 class SyncWorker(QThread):
     """Uploads queued mutations without blocking the Qt application thread.
@@ -124,8 +130,8 @@ class SyncWorker(QThread):
 
     def _send_item(self, item: dict, token: str, user_id: str) -> None:
         table = item["table_name"]
-        if not table.replace("_", "").isalnum():
-            raise ValueError("Invalid table name in sync queue")
+        if table not in SYNC_TABLES:
+            raise ValueError(f"Table is not enabled for synchronization: {table}")
         base = f"{self.supabase_url}/rest/v1/{quote(table, safe='')}"
         headers = {
             "apikey": self.anon_key,
