@@ -40,6 +40,22 @@ class TestDocumentExtractor(unittest.TestCase):
             self.assertEqual(result.text, "Relay AI context document")
             self.assertEqual(result.page_count, 1)
 
+    def test_extract_docx(self):
+        import zipfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "sample.docx"
+            xml_content = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                '<w:body><w:p><w:r><w:t>Hello Relay AI DOCX</w:t></w:r></w:p></w:body>'
+                '</w:document>'
+            )
+            with zipfile.ZipFile(path, "w") as zf:
+                zf.writestr("word/document.xml", xml_content.encode("utf-8"))
+            result = DocumentExtractor().extract(path)
+            self.assertEqual(result.text, "Hello Relay AI DOCX")
+            self.assertEqual(result.page_count, 1)
+
     def test_unsupported_extension_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "file.exe"
