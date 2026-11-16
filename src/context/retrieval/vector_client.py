@@ -203,6 +203,13 @@ class VectorSimilarityClient:
                 code = err_json.get("code")
             except Exception:
                 pass
+
+            # Map PostgreSQL authorization SQLSTATE codes to VectorClientAuthError
+            if code in ("28000", "42501"):
+                raise VectorClientAuthError(
+                    f"Vector RPC authorization failed (code {code}): {error_msg}"
+                )
+
             raise VectorClientRPCError(
                 f"Vector RPC error (HTTP {response.status_code}): {error_msg}",
                 status_code=response.status_code,
