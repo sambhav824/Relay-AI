@@ -266,6 +266,22 @@ class TestVectorSimilarityClient(TestCase):
         with self.assertRaises(VectorClientAuthError):
             client.search_similar_chunks([0.1] * 768, "ollama/nomic-embed-text", 768)
 
+    def test_sqlstate_permission_errors_raise_auth_error(self):
+        """Verify SQLSTATE 28000 and 42501 raise VectorClientAuthError."""
+        for code in ("28000", "42501"):
+            def handler(_: httpx.Request) -> httpx.Response:
+                return httpx.Response(400, json={"code": code, "message": "Permission denied"})
+
+            client = VectorSimilarityClient(
+                supabase_url=self.supabase_url,
+                supabase_anon_key=self.anon_key,
+                access_token=self.access_token,
+                http_client=self._make_mock_client(handler),
+            )
+
+            with self.assertRaises(VectorClientAuthError):
+                client.search_similar_chunks([0.1] * 768, "ollama/nomic-embed-text", 768)
+
     def test_postgrest_rpc_error_handling(self):
         """Verify 400 error with PostgreSQL error message is parsed properly."""
         def handler(_: httpx.Request) -> httpx.Response:
