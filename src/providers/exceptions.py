@@ -35,3 +35,9 @@ class ProviderTimeoutError(ProviderError):
     """Raised when the provider endpoint takes too long to respond."""
     pass
 
+
+# Backward-compatibility aliases
+ProviderAuthError = ProviderAuthenticationError
+ProviderNotFoundError = ModelNotFoundError
+
+

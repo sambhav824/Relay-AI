@@ -5,16 +5,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import logging
 import mimetypes
 from pathlib import Path
 import sqlite3
 import uuid
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.context.documents.chunker import TextChunker
 from src.context.documents.extractors import DocumentExtractor
 from src.context.documents.storage import SupabaseDocumentStorage
 from src.context.sync.queue import SyncQueueManager
+
+if TYPE_CHECKING:
+    from src.context.embeddings.pipeline import EmbeddingPipeline
+    from src.providers.embeddings import EmbeddingProvider
+
+logger = logging.getLogger("RelayAI.DocumentManager")
 
 
 @dataclass
@@ -46,6 +53,8 @@ class DocumentManager:
         sync_queue: Optional[SyncQueueManager] = None,
         extractor: Optional[DocumentExtractor] = None,
         chunker: Optional[TextChunker] = None,
+        embedding_pipeline: Optional[EmbeddingPipeline] = None,
+        embedding_provider: Optional[EmbeddingProvider] = None,
         max_file_size_bytes: int = 50 * 1024 * 1024,
     ) -> None:
         if not user_id:
@@ -56,6 +65,8 @@ class DocumentManager:
         self.sync_queue = sync_queue
         self.extractor = extractor or DocumentExtractor()
         self.chunker = chunker or TextChunker()
+        self.embedding_pipeline = embedding_pipeline
+        self.embedding_provider = embedding_provider
         self.max_file_size_bytes = max_file_size_bytes
 
     def ingest(self, file_path: str | Path, *, project_id: str = "global") -> DocumentIngestionResult:
@@ -101,6 +112,7 @@ class DocumentManager:
             "storage_path": storage_path,
             "extractor": extracted.metadata,
         }
+        inserted_chunk_items: List[tuple[str, Any]] = []
         try:
             with self.conn:
                 self.conn.execute(
@@ -124,7 +136,13 @@ class DocumentManager:
                     )
                 for chunk in chunks:
                     chunk_id = str(uuid.uuid4())
-                    chunk_metadata = {**chunk.metadata, "owner_user_id": self.user_id}
+                    inserted_chunk_items.append((chunk_id, chunk))
+                    chunk_metadata = {
+                        **chunk.metadata,
+                        "owner_user_id": self.user_id,
+                        "embedding_status": "PENDING",
+                        "embedding_retry_count": 0,
+                    }
                     self.conn.execute(
                         """INSERT INTO document_chunks
                            (id,document_id,project_id,chunk_index,content,token_estimate,page_number,metadata_json)
@@ -147,6 +165,38 @@ class DocumentManager:
                 except Exception:
                     pass
             raise
+
+        # Generate embeddings outside the SQLite transaction if pipeline and provider are configured
+        if self.embedding_pipeline and self.embedding_provider:
+            try:
+                from src.context.embeddings.pipeline import ChunkItem
+                from src.context.embeddings.recovery import update_chunk_embedding_metadata
+                items_to_embed = [
+                    ChunkItem(
+                        chunk_id=cid,
+                        content=c.content,
+                        index=c.index,
+                        document_id=document_id,
+                        page_number=c.page_number,
+                        metadata={**c.metadata, "owner_user_id": self.user_id, "embedding_status": "PENDING", "embedding_retry_count": 0},
+                    )
+                    for cid, c in inserted_chunk_items
+                ]
+
+                def on_batch(succ: list[Any], fail: list[Any]) -> None:
+                    update_chunk_embedding_metadata(self.conn, self.embedding_provider, successful=succ, failed=fail)
+
+                self.embedding_pipeline.embed_chunks(
+                    items_to_embed,
+                    self.embedding_provider,
+                    on_batch_complete=on_batch,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Embedding generation during ingestion failed for document %s: %s. Chunks remain available for keyword search.",
+                    document_id,
+                    exc,
+                )
 
         return DocumentIngestionResult(document_id, path.name, digest, len(chunks),
                                        extracted.page_count, storage_path)
