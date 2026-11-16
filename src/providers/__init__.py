@@ -12,6 +12,14 @@ from src.providers.ollama import OllamaProvider, stream_chat, generate
 from src.providers.gemini import GeminiProvider
 from src.providers.groq import GroqProvider
 from src.providers.openai import OpenAIProvider
+from src.providers.embeddings import (
+    EmbeddingProvider,
+    OpenAIEmbeddingProvider,
+    OllamaEmbeddingProvider,
+    MockEmbeddingProvider,
+    validate_vector,
+    normalize_vector,
+)
 from src.providers.manager import ProviderManager, get_default_provider_manager
 
 __all__ = [
@@ -27,6 +35,12 @@ __all__ = [
     "GeminiProvider",
     "GroqProvider",
     "OpenAIProvider",
+    "EmbeddingProvider",
+    "OpenAIEmbeddingProvider",
+    "OllamaEmbeddingProvider",
+    "MockEmbeddingProvider",
+    "validate_vector",
+    "normalize_vector",
     "stream_chat",
     "generate",
     "ProviderManager",
