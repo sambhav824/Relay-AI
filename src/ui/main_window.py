@@ -847,10 +847,7 @@ class MainWindow(QMainWindow):
         self.assistant_buffer = ""
         self.has_new_tokens = True
         self._current_model_info = (to_provider, model)
-        self.fallback_info = (
-            f"Automatic fallback: {from_provider.title()} quota/billing limit → "
-            f"{to_provider.title()} ({model})"
-        )
+        self.fallback_info = None  # Keep conversation transcript clean of internal fallback notes
         self.status_badge.setText(f"Using {to_provider.title()} fallback")
         self.status_badge.setStyleSheet(badge_style("warning", self.dark))
         self._update_current_assistant_block()
@@ -1386,6 +1383,7 @@ class MainWindow(QMainWindow):
             cursor.setPosition(self.current_assistant_start)
             cursor.setPosition(self.current_assistant_end, QTextCursor.MoveMode.KeepAnchor)
             cursor.insertHtml(self._format_error_card(error_message))
+            cursor.insertBlock()
             self.current_assistant_start = None
             self.current_assistant_end = None
 
@@ -1417,7 +1415,7 @@ class MainWindow(QMainWindow):
         # Discard partial output from failed primary model
         self.assistant_buffer = ""
         self.has_new_tokens = True
-        self.fallback_info = f"Fallback {fidx}: {fp.title()} ({fm}) failed → Switched to {tp.title()} ({tm})"
+        self.fallback_info = None  # Keep conversation transcript clean of internal fallback notes
         self._current_model_info = (tp, tm)
         if hasattr(self, "routing_pill"):
             self.routing_pill.set_fallback(fp, fm, tp, tm, fidx)
@@ -1463,6 +1461,7 @@ class MainWindow(QMainWindow):
             cursor.setPosition(self.current_assistant_start)
             cursor.setPosition(self.current_assistant_end, QTextCursor.MoveMode.KeepAnchor)
             cursor.insertHtml(self._format_error_card(summary))
+            cursor.insertBlock()
             self.current_assistant_start = None
             self.current_assistant_end = None
 
@@ -1541,6 +1540,7 @@ class MainWindow(QMainWindow):
             cursor.setPosition(self.current_assistant_start)
             cursor.setPosition(self.current_assistant_end, QTextCursor.MoveMode.KeepAnchor)
             cursor.insertHtml(self._format_error_card(message))
+            cursor.insertBlock()
             self.current_assistant_start = None
             self.current_assistant_end = None
 
@@ -1694,17 +1694,6 @@ class MainWindow(QMainWindow):
         if self.chat_mode == "routed" and self._last_routing_tag:
             bot_label += f" ({self._last_routing_tag})"
 
-        fallback_banner = ""
-        active_fallback = fallback_note or self.fallback_info
-        if active_fallback:
-            fallback_bg = t.bg_card
-            fallback_border = t.border_focus
-            fallback_banner = (
-                f'<div style="background: {fallback_bg}; border: 1px dashed {fallback_border}; border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; font-size: 12px; color: {t.text_primary}; font-weight: 600;">'
-                f'  {html.escape(active_fallback)}'
-                f'</div>'
-            )
-
         if is_thinking and not content:
             body = f'<div style="color: {t.text_muted}; font-style: italic;">Thinking…</div>'
         else:
@@ -1714,7 +1703,6 @@ class MainWindow(QMainWindow):
             f'<div style="margin-bottom: 16px;">'
             f'  <div style="font-weight: 700; font-size: 13px; color: {bot_header_color}; margin-bottom: 6px; padding-left: 2px;">{bot_label}</div>'
             f'  <div style="background: {bot_bg}; border: 1px solid {bot_border}; border-radius: 10px; padding: 12px 16px; font-size: 14px; line-height: 1.5; color: {t.text_primary};">'
-            f'    {fallback_banner}'
             f'    {body}'
             f'  </div>'
             f'</div>'
