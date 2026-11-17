@@ -25,6 +25,7 @@ import {
   setCustomApiBase,
   resetApiBase,
   pingBackend,
+  isStaleBackendUrl,
 } from "../lib/api";
 
 type Tab = "dashboard" | "chat" | "routing" | "compare" | "teams" | "settings";
@@ -264,6 +265,14 @@ export default function RelayAIWeb() {
   }, []);
 
   const handleTestBackend = async () => {
+    if (isStaleBackendUrl(customBackendUrl)) {
+      setBackendPingResult({
+        ok: false,
+        latencyMs: 0,
+        error: "This URL belongs to a decommissioned Render instance. Please use https://relay-ai-0r5f.onrender.com.",
+      });
+      return;
+    }
     setIsPingingBackend(true);
     setBackendPingResult(null);
     try {
@@ -281,6 +290,11 @@ export default function RelayAIWeb() {
   };
 
   const handleSaveBackendUrl = () => {
+    if (isStaleBackendUrl(customBackendUrl)) {
+      alert("Error: Cannot save decommissioned Render endpoint. The active backend is https://relay-ai-0r5f.onrender.com.");
+      setCustomBackendUrl(getApiBase());
+      return;
+    }
     setCustomApiBase(customBackendUrl);
     setActiveBackendUrl(getApiBase());
     fetchHealth().then(setHealthData).catch(() => {});

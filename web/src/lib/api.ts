@@ -9,13 +9,27 @@ import { supabase } from "./supabase";
 export const PRODUCTION_RENDER_BACKEND = "https://relay-ai-0r5f.onrender.com";
 
 /**
+ * Known decommissioned or invalid legacy Render endpoints that must never be used.
+ */
+export const STALE_BACKEND_URLS = [
+  "relay-ai-x92e.onrender.com",
+  "relay-ai-api.onrender.com",
+];
+
+export function isStaleBackendUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase().trim();
+  return STALE_BACKEND_URLS.some((stale) => lower.includes(stale));
+}
+
+/**
  * Checks whether a valid backend API target is available for this client.
  */
 export function isBackendConfigured(): boolean {
   if (typeof window !== "undefined") {
     try {
       const custom = localStorage.getItem("relay_backend_url");
-      if (custom && custom.trim() && !custom.includes("relay-ai-x92e.onrender.com")) return true;
+      if (custom && custom.trim() && !isStaleBackendUrl(custom)) return true;
     } catch {}
 
     const hostname = window.location.hostname;
@@ -31,7 +45,13 @@ export function isBackendConfigured(): boolean {
     }
 
     const envUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (envUrl && envUrl.trim() && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+    if (
+      envUrl &&
+      envUrl.trim() &&
+      !envUrl.includes("localhost") &&
+      !envUrl.includes("127.0.0.1") &&
+      !isStaleBackendUrl(envUrl)
+    ) {
       return true;
     }
     // Verified production Render backend
@@ -45,8 +65,8 @@ export function isBackendConfigured(): boolean {
 
 /**
  * Dynamically resolves the active Backend API base URL:
- * 1. Checks localStorage for a user-specified custom URL (useful for testing Render services / local IPs).
- * 2. Checks process.env.NEXT_PUBLIC_API_URL (provided at Vercel build time).
+ * 1. Checks localStorage for a user-specified custom URL, auto-purging stale/decommissioned endpoints.
+ * 2. Checks process.env.NEXT_PUBLIC_API_URL (provided at Vercel build time, verifying it is not stale).
  * 3. On browser loopback (localhost / 127.0.0.1) -> defaults to "http://localhost:8000".
  * 4. On local network Wi-Fi (192.168.x.x / 10.x.x.x) -> dynamically points to that device's port 8000.
  * 5. On public production domains (*.vercel.app / custom domain) -> connects to the verified production Render service.
@@ -57,8 +77,8 @@ export function getApiBase(): string {
       const custom = localStorage.getItem("relay_backend_url");
       if (custom && custom.trim()) {
         const cleaned = custom.trim().replace(/\/+$/, "");
-        // Clean up outdated or invalid legacy Render endpoints
-        if (cleaned.includes("relay-ai-x92e.onrender.com")) {
+        // Clean up outdated or invalid legacy Render endpoints safely
+        if (isStaleBackendUrl(cleaned)) {
           localStorage.removeItem("relay_backend_url");
         } else {
           return cleaned;
@@ -69,7 +89,11 @@ export function getApiBase(): string {
     const hostname = window.location.hostname;
     // Local loopback
     if (hostname === "localhost" || hostname === "127.0.0.1") {
-      return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const envUrl = process.env.NEXT_PUBLIC_API_URL;
+      if (envUrl && !isStaleBackendUrl(envUrl)) {
+        return envUrl.trim().replace(/\/+$/, "");
+      }
+      return "http://localhost:8000";
     }
 
     // Local area network Wi-Fi testing (e.g. 192.168.x.x, 10.x.x.x, or .local)
@@ -79,7 +103,7 @@ export function getApiBase(): string {
       hostname.startsWith("172.16.") ||
       hostname.endsWith(".local")
     ) {
-      return process.env.NEXT_PUBLIC_API_URL || `http://${hostname}:8000`;
+      return `http://${hostname}:8000`;
     }
 
     // Public production environment (Vercel, custom domains)
@@ -88,7 +112,8 @@ export function getApiBase(): string {
       envUrl &&
       envUrl.trim() &&
       !envUrl.includes("localhost") &&
-      !envUrl.includes("127.0.0.1")
+      !envUrl.includes("127.0.0.1") &&
+      !isStaleBackendUrl(envUrl)
     ) {
       return envUrl.trim().replace(/\/+$/, "");
     }
@@ -97,7 +122,12 @@ export function getApiBase(): string {
   }
 
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (envUrl && envUrl.trim() && !envUrl.includes("localhost")) {
+  if (
+    envUrl &&
+    envUrl.trim() &&
+    !envUrl.includes("localhost") &&
+    !isStaleBackendUrl(envUrl)
+  ) {
     return envUrl.trim().replace(/\/+$/, "");
   }
   return PRODUCTION_RENDER_BACKEND;
@@ -106,7 +136,7 @@ export function getApiBase(): string {
 export function setCustomApiBase(url: string): void {
   if (typeof window !== "undefined") {
     try {
-      if (!url || !url.trim()) {
+      if (!url || !url.trim() || isStaleBackendUrl(url)) {
         localStorage.removeItem("relay_backend_url");
       } else {
         localStorage.setItem("relay_backend_url", url.trim().replace(/\/+$/, ""));
