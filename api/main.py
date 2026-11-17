@@ -218,17 +218,19 @@ async def chat_endpoint(req: ChatRequest):
     if not prov:
         raise HTTPException(status_code=400, detail=f"Provider '{provider_id}' is not registered.")
 
-    # Convert to Core Message objects
+    # Convert to Core Message objects and apply Context Engine policy
+    from src.core.context_engine import prepare_chat_context
     core_messages = [
         Message(role=m.role, content=m.content, images=m.images)
         for m in req.messages
     ]
+    prepared_messages = prepare_chat_context(core_messages)
 
     if not req.stream:
         try:
             loop = asyncio.get_running_loop()
             reply = await loop.run_in_executor(
-                executor, lambda: prov.generate(core_messages, model=model_id)
+                executor, lambda: prov.generate(prepared_messages, model=model_id)
             )
             return {
                 "role": "assistant",
@@ -243,7 +245,7 @@ async def chat_endpoint(req: ChatRequest):
     # Server-Sent Events (SSE) Streaming
     def sse_event_stream():
         try:
-            for chunk in prov.stream(core_messages, model=model_id):
+            for chunk in prov.stream(prepared_messages, model=model_id):
                 payload = {
                     "delta": chunk.delta,
                     "is_final": chunk.is_final,

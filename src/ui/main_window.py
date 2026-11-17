@@ -135,8 +135,12 @@ class ChatWorker(QThread):
                         import logging
                         logging.getLogger("RelayAI.ChatWorker").warning("ChatWorker RAG retrieval failed: %s", ret_err)
 
+            from src.core.context_engine import prepare_chat_context
+            core_msgs = [m if isinstance(m, Message) else Message.from_dict(m) for m in self.messages]
+            prepared_messages = prepare_chat_context(core_msgs)
+
             if isinstance(stream_chat, (Mock, MagicMock)):
-                stream_iter = stream_chat(self.messages, self.model)
+                stream_iter = stream_chat(prepared_messages, self.model)
                 for chunk in stream_iter:
                     if self._is_cancelled:
                         self.cancelled.emit()
@@ -146,7 +150,7 @@ class ChatWorker(QThread):
                         parts.append(text)
                         self.chunk_received.emit(text)
             else:
-                for chunk in self.provider.stream(self.messages, self.model):
+                for chunk in self.provider.stream(prepared_messages, self.model):
                     if self._is_cancelled:
                         self.cancelled.emit()
                         return

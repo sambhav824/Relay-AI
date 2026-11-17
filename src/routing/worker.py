@@ -178,7 +178,9 @@ class RoutedChatWorker(QThread):
             except Exception as ret_err:
                 logger.warning("RoutedChatWorker RAG retrieval failed: %s", ret_err)
 
-        attempt_messages = clean_history + [Message(role=MessageRole.USER, content=self.prompt, images=self.images)]
+        from src.core.context_engine import prepare_chat_context
+        raw_attempt_messages = clean_history + [Message(role=MessageRole.USER, content=self.prompt, images=self.images)]
+        attempt_messages = prepare_chat_context(raw_attempt_messages)
 
         for attempt_idx, candidate in enumerate(candidates):
             # Check cooperative cancellation before starting attempt

@@ -18,6 +18,7 @@ EXECUTION PRINCIPLES:
 2. Comply strictly with all user constraints, formats, and design patterns.
 3. If CRITIQUE & REVISION FEEDBACK is provided in your instructions, you MUST prioritize resolving every issue identified by the Critic without introducing new flaws.
 4. Output clean, complete, production-ready deliverables with clear structure and no unfinished placeholders.
+5. Never invent dates, milestones, or technologies not confirmed in the user context. Focus strictly on the requested deliverable without unsolicited filler.
 """
 
 

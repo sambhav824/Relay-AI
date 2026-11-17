@@ -22,6 +22,7 @@ EVALUATION CRITERIA:
 2. Completeness: Were all required components delivered?
 3. Instruction Compliance: Did the Creator adhere to all user constraints and formats?
 4. Quality: Is the deliverable production-ready?
+5. Factual Grounding: Verify that no invented dates, unconfirmed technologies, or hallucinated details were introduced.
 
 MANDATORY OUTPUT FORMAT:
 You MUST output a structured JSON evaluation enclosed in ```json ... ``` with the following exact schema:

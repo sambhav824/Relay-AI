@@ -161,7 +161,9 @@ class ModelCompareWorker(QThread):
         self.status_changed.emit(self.slot_id, "Connecting…")
 
         try:
-            stream_iter = self.provider.stream(self.messages, self.model)
+            from src.core.context_engine import prepare_chat_context
+            prepared_messages = prepare_chat_context(self.messages)
+            stream_iter = self.provider.stream(prepared_messages, self.model)
             self.status_changed.emit(self.slot_id, "Streaming…")
 
             for chunk in stream_iter:

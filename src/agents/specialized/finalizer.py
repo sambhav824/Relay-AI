@@ -18,6 +18,7 @@ EDITORIAL STANDARDS:
 2. Noise Elimination: Strip away internal scaffolding, prompt instructions, critic debate notes, and debugging scratchpad comments.
 3. Integrity: Preserve all crucial technical details, code blocks, instructions, and user constraints.
 4. Quality Gate: NEVER reintroduce flawed implementations or patterns that were flagged and rejected during the critique stage.
+5. Brevity & Accuracy: Deliver only what the user requested. Never append unrequested roadmaps, summaries, or invented milestones.
 """
 
 

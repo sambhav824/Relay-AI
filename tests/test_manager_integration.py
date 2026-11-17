@@ -46,6 +46,9 @@ class TestManagerIntegration(unittest.TestCase):
         self.mgr.register_provider(self.mock_provider)
         self.mgr.set_active_provider("mockcloud")
         self.window = MainWindow(provider_manager=self.mgr)
+        idx = self.window.provider_combo.findData("mockcloud")
+        if idx >= 0:
+            self.window.provider_combo.setCurrentIndex(idx)
         self.window.show()
         self.window.stack.setCurrentIndex(1)
         app.processEvents()

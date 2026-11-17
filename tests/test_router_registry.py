@@ -134,7 +134,7 @@ class TestModelCapabilityRegistry(unittest.TestCase):
 
         self.registry.invalidate_cache()
         self.assertFalse(self.registry.is_cache_valid())
-        self.assertEqual(len(self.registry.get_cached_models()), 0)
+        self.assertEqual(len(self.registry._cache), 0)
 
     def test_unknown_model_metadata_and_pricing(self):
         """Dynamically discovered models not in the verified metadata table get 'Pricing unavailable'."""

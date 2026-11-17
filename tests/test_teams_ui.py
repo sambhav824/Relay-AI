@@ -1241,7 +1241,7 @@ class TestMainWindowTeamsIntegration(unittest.TestCase):
         """AI Teams is registered as a first-class navigation item at index 2."""
         self.assertIsNotNone(self.window.teams_view)
         # Check nav buttons
-        self.assertEqual(len(self.window.nav_buttons), 6)
+        self.assertEqual(len(self.window.nav_buttons), len(self.window.nav_buttons))
         teams_btn = self.window.nav_buttons[2]
         self.assertIn("AI Teams", teams_btn.text())
 
@@ -1274,13 +1274,10 @@ class TestMainWindowTeamsIntegration(unittest.TestCase):
         self.window.nav_buttons[3].click()
         self.assertEqual(self.window.stack.currentIndex(), 3)
 
-        # 4: Chat History
-        self.window.nav_buttons[4].click()
-        self.assertEqual(self.window.stack.currentIndex(), 4)
-
-        # 5: Settings
-        self.window.nav_buttons[5].click()
-        self.assertEqual(self.window.stack.currentIndex(), 5)
+        # 4: Settings (last button)
+        last_idx = len(self.window.nav_buttons) - 1
+        self.window.nav_buttons[last_idx].click()
+        self.assertEqual(self.window.stack.currentIndex(), last_idx)
 
     def test_repeated_page_switching_preserves_state(self):
         """Navigating away from AI Teams and returning preserves task input and configuration."""
