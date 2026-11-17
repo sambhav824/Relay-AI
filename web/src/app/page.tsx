@@ -1828,7 +1828,7 @@ export default function RelayAIWeb() {
                       type="text"
                       value={customBackendUrl}
                       onChange={(e) => setCustomBackendUrl(e.target.value)}
-                      placeholder="https://relay-ai-api.onrender.com"
+                      placeholder="https://relay-ai-x92e.onrender.com"
                       className="flex-1 px-3 py-2 rounded-lg bg-[#202124] border border-gray-700 text-xs text-white font-mono outline-none focus:border-white"
                     />
                     <button

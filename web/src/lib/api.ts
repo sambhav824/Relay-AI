@@ -4,6 +4,11 @@
 import { supabase } from "./supabase";
 
 /**
+ * Verified production Render backend endpoint for Relay AI.
+ */
+export const PRODUCTION_RENDER_BACKEND = "https://relay-ai-x92e.onrender.com";
+
+/**
  * Checks whether a valid backend API target is available for this client.
  */
 export function isBackendConfigured(): boolean {
@@ -29,9 +34,13 @@ export function isBackendConfigured(): boolean {
     if (envUrl && envUrl.trim() && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
       return true;
     }
+    // Verified production Render backend
+    if (PRODUCTION_RENDER_BACKEND) {
+      return true;
+    }
     return false;
   }
-  return Boolean(process.env.NEXT_PUBLIC_API_URL);
+  return Boolean(process.env.NEXT_PUBLIC_API_URL || PRODUCTION_RENDER_BACKEND);
 }
 
 /**
@@ -40,7 +49,7 @@ export function isBackendConfigured(): boolean {
  * 2. Checks process.env.NEXT_PUBLIC_API_URL (provided at Vercel build time).
  * 3. On browser loopback (localhost / 127.0.0.1) -> defaults to "http://localhost:8000".
  * 4. On local network Wi-Fi (192.168.x.x / 10.x.x.x) -> dynamically points to that device's port 8000.
- * 5. On public production domains (*.vercel.app / custom domain) -> NEVER uses localhost or assumed URLs.
+ * 5. On public production domains (*.vercel.app / custom domain) -> connects to the verified production Render service.
  */
 export function getApiBase(): string {
   if (typeof window !== "undefined") {
@@ -78,14 +87,14 @@ export function getApiBase(): string {
       return envUrl.trim().replace(/\/+$/, "");
     }
 
-    return "";
+    return PRODUCTION_RENDER_BACKEND;
   }
 
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (envUrl && envUrl.trim() && !envUrl.includes("localhost")) {
     return envUrl.trim().replace(/\/+$/, "");
   }
-  return "";
+  return PRODUCTION_RENDER_BACKEND;
 }
 
 export function setCustomApiBase(url: string): void {

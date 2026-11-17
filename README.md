@@ -283,7 +283,7 @@ The repository includes a ready-to-deploy [render.yaml](render.yaml) specificati
 1. Import the repository on [Vercel](https://vercel.com/new).
 2. Set the **Root Directory** to `web`.
 3. Configure the environment variable:
-   - `NEXT_PUBLIC_API_URL`: Your deployed Render API URL (e.g., `https://relay-ai-api.onrender.com`).
+   - `NEXT_PUBLIC_API_URL`: Your deployed Render API URL (e.g., `https://relay-ai-x92e.onrender.com`).
 4. Click **Deploy**.
 
 ---
