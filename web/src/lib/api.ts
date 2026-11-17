@@ -16,6 +16,7 @@ export interface ModelOption {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  images?: string[];
 }
 
 export interface RouteResponse {
@@ -66,7 +67,7 @@ export async function fetchModels(): Promise<ModelOption[]> {
     return [
       { id: "openai/gpt-oss-120b", provider: "groq", provider_name: "Groq LPU", display_name: "GPT-OSS 120B", context_window: 131072, is_local: false, configured: true, supports_vision: false },
       { id: "qwen/qwen3.8-27b", provider: "groq", provider_name: "Groq LPU", display_name: "Qwen 3.8 27B", context_window: 131072, is_local: false, configured: true, supports_vision: true },
-      { id: "gemini-2.5-flash", provider: "gemini", provider_name: "Google Gemini", display_name: "Gemini 2.5 Flash", context_window: 1048576, is_local: false, configured: true, supports_vision: true },
+      { id: "gemini-3.5-flash-lite", provider: "gemini", provider_name: "Google Gemini", display_name: "Gemini 3.5 Flash Lite", context_window: 1048576, is_local: false, configured: true, supports_vision: true },
       { id: "gpt-4o-mini", provider: "openai", provider_name: "OpenAI", display_name: "GPT-4o Mini", context_window: 128000, is_local: false, configured: true, supports_vision: true },
     ];
   }

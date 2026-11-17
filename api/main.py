@@ -121,7 +121,7 @@ def select_best_available_provider() -> tuple[str, str]:
     mgr = get_manager()
     for pid, model in [
         ("groq", "openai/gpt-oss-120b"),
-        ("gemini", "gemini-2.5-flash"),
+        ("gemini", "gemini-3.5-flash-lite"),
         ("openai", "gpt-4o-mini"),
         ("ollama", "llama3.2:3b"),
     ]:
@@ -167,8 +167,9 @@ KNOWN_MODELS = [
     {"id": "openai/gpt-oss-120b", "provider": "groq", "provider_name": "Groq LPU", "display_name": "GPT-OSS 120B", "context_window": 131072, "is_local": False, "supports_vision": False},
     {"id": "qwen/qwen3.8-27b", "provider": "groq", "provider_name": "Groq LPU", "display_name": "Qwen 3.8 27B", "context_window": 131072, "is_local": False, "supports_vision": True},
     {"id": "llama-3.3-70b-versatile", "provider": "groq", "provider_name": "Groq LPU", "display_name": "Llama 3.3 70B", "context_window": 131072, "is_local": False, "supports_vision": False},
-    {"id": "gemini-2.5-flash", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 2.5 Flash", "context_window": 1048576, "is_local": False, "supports_vision": True},
-    {"id": "gemini-2.5-pro", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 2.5 Pro", "context_window": 2097152, "is_local": False, "supports_vision": True},
+    {"id": "gemini-3.5-flash-lite", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 3.5 Flash Lite", "context_window": 1048576, "is_local": False, "supports_vision": True},
+    {"id": "gemini-3.5-flash", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 3.5 Flash", "context_window": 1048576, "is_local": False, "supports_vision": True},
+    {"id": "gemini-3.8-flash", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 3.8 Flash", "context_window": 1048576, "is_local": False, "supports_vision": True},
     {"id": "gpt-4o-mini", "provider": "openai", "provider_name": "OpenAI", "display_name": "GPT-4o Mini", "context_window": 128000, "is_local": False, "supports_vision": True},
     {"id": "gpt-4o", "provider": "openai", "provider_name": "OpenAI", "display_name": "GPT-4o", "context_window": 128000, "is_local": False, "supports_vision": True},
     {"id": "llama3.2:3b", "provider": "ollama", "provider_name": "Ollama (Local)", "display_name": "Llama 3.2 3B", "context_window": 131072, "is_local": True, "supports_vision": False},
@@ -203,6 +204,15 @@ async def chat_endpoint(req: ChatRequest):
         provider_id, default_model = select_best_available_provider()
         if not model_id:
             model_id = default_model
+    elif not model_id:
+        if provider_id == "gemini":
+            model_id = "gemini-3.5-flash-lite"
+        elif provider_id == "groq":
+            model_id = "openai/gpt-oss-120b"
+        elif provider_id == "openai":
+            model_id = "gpt-4o-mini"
+        elif provider_id == "ollama":
+            model_id = "llama3:latest"
 
     prov = mgr.get_provider(provider_id)
     if not prov:

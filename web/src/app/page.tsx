@@ -69,7 +69,7 @@ export default function RelayAIWeb() {
   const [comparePrompt, setComparePrompt] = useState<string>("");
   const [compareSlots] = useState<{ provider: string; model: string }[]>([
     { provider: "groq", model: "openai/gpt-oss-120b" },
-    { provider: "gemini", model: "gemini-2.5-flash" },
+    { provider: "gemini", model: "gemini-3.5-flash-lite" },
   ]);
   const [compareResults, setCompareResults] = useState<CompareResult[]>([]);
   const [compareLoading, setCompareLoading] = useState<boolean>(false);
@@ -80,6 +80,140 @@ export default function RelayAIWeb() {
   const [teamSteps, setTeamSteps] = useState<TeamStep[]>([]);
   const [teamDeliverable, setTeamDeliverable] = useState<string>("");
   const [teamRunning, setTeamRunning] = useState<boolean>(false);
+
+  // Attachment & Voice Dictation State
+  interface AttachmentItem {
+    name: string;
+    type: "image" | "file";
+    sizeKb: number;
+    dataUrl?: string;
+    content?: string;
+  }
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [showAttachMenu, setShowAttachMenu] = useState<boolean>(false);
+  const [isListening, setIsListening] = useState<boolean>(false);
+  const recognitionRef = useRef<any>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+
+  // Handle Speech-to-Text Voice Dictation
+  const toggleVoiceDictation = () => {
+    if (isListening) {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRec =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRec) {
+      alert("Speech-to-text dictation is not supported by your current browser. Please open in Google Chrome or Microsoft Edge.");
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRec();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event: any) => {
+        let transcript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            transcript += event.results[i][0].transcript;
+          }
+        }
+        if (transcript) {
+          setChatInput((prev) => (prev ? `${prev.trim()} ${transcript.trim()}` : transcript.trim()));
+        }
+      };
+
+      recognition.onerror = () => {
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } catch {
+      setIsListening(false);
+    }
+  };
+
+  // Close attachment menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    if (showAttachMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showAttachMenu]);
+
+  // Handle File Selection
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, isImage: boolean) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      const sizeKb = Math.round(file.size / 1024);
+      if (isImage || file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: "image",
+              sizeKb,
+              dataUrl: reader.result as string,
+            },
+          ]);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const reader = new FileReader();
+        reader.onload = () => {
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: "file",
+              sizeKb,
+              content: reader.result as string,
+            },
+          ]);
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    e.target.value = "";
+    setShowAttachMenu(false);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
 
   // Initialize
   useEffect(() => {
@@ -100,19 +234,65 @@ export default function RelayAIWeb() {
   // Handle Send Chat
   const handleSendChat = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!chatInput.trim() || isStreaming) return;
+    if ((!chatInput.trim() && attachments.length === 0) || isStreaming) return;
 
-    const userMsg: ChatMessage = { role: "user", content: chatInput.trim() };
-    const newHistory = [...chatMessages, userMsg];
-    setChatMessages(newHistory);
+    let promptText = chatInput.trim();
+    if (!promptText && attachments.length > 0) {
+      promptText = "Please analyze the attached document(s) and information.";
+    }
+
+    const currentAttachments = [...attachments];
+    setAttachments([]);
     setChatInput("");
     setIsStreaming(true);
 
+    const docSnippets: string[] = [];
+    const imageList: string[] = [];
+    const attachedBadges: string[] = [];
+
+    for (const att of currentAttachments) {
+      if (att.type === "image" && att.dataUrl) {
+        imageList.push(att.dataUrl);
+        attachedBadges.push(`🖼 ${att.name}`);
+      } else {
+        attachedBadges.push(`📄 ${att.name}`);
+        if (att.content) {
+          const preview = att.content.length > 6000 ? att.content.slice(0, 6000) + "\n...[truncated]" : att.content;
+          docSnippets.push(`\n--- Attached Document (${att.name}) ---\n${preview}\n---`);
+        }
+      }
+    }
+
+    let fullPrompt = promptText;
+    if (docSnippets.length > 0) {
+      fullPrompt = `${promptText}\n${docSnippets.join("\n")}`.trim();
+    }
+
+    let displayMsg = promptText;
+    if (attachedBadges.length > 0) {
+      displayMsg = `${promptText}\n\n*📎 Attached: ${attachedBadges.join(", ")}*`.trim();
+    }
+
+    const userMsg: ChatMessage = {
+      role: "user",
+      content: displayMsg,
+      images: imageList.length > 0 ? imageList : undefined,
+    };
+    const apiMsg: ChatMessage = {
+      role: "user",
+      content: fullPrompt,
+      images: imageList.length > 0 ? imageList : undefined,
+    };
+
+    const newDisplayHistory = [...chatMessages, userMsg];
+    const newApiHistory = [...chatMessages, apiMsg];
+    setChatMessages(newDisplayHistory);
+
     const assistantMsg: ChatMessage = { role: "assistant", content: "" };
-    setChatMessages([...newHistory, assistantMsg]);
+    setChatMessages([...newDisplayHistory, assistantMsg]);
 
     await streamChat(
-      newHistory,
+      newApiHistory,
       selectedProvider,
       selectedModel,
       (delta) => {
@@ -486,24 +666,181 @@ export default function RelayAIWeb() {
                 <div ref={chatEndRef} />
               </div>
 
+              {/* Hidden File Inputs for Camera, Photos, Files */}
+              <input
+                type="file"
+                ref={cameraInputRef}
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => handleFileUpload(e, true)}
+                className="hidden"
+              />
+              <input
+                type="file"
+                ref={photoInputRef}
+                accept="image/*"
+                multiple
+                onChange={(e) => handleFileUpload(e, true)}
+                className="hidden"
+              />
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".pdf,.docx,.txt,.md,.csv,.json,.log,text/*,application/pdf"
+                multiple
+                onChange={(e) => handleFileUpload(e, false)}
+                className="hidden"
+              />
+
+              {/* Attachment Preview Tray */}
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2 px-1">
+                  {attachments.map((att, idx) => (
+                    <div
+                      key={idx}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border ${
+                        isDarkMode
+                          ? "bg-[#28292c] border-gray-700 text-gray-200"
+                          : "bg-gray-100 border-gray-300 text-gray-800"
+                      }`}
+                    >
+                      <span>{att.type === "image" ? "🖼" : "📎"}</span>
+                      <span className="max-w-[140px] truncate">{att.name}</span>
+                      <span className="text-[10px] text-gray-500">({att.sizeKb} KB)</span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(idx)}
+                        className="ml-1 text-gray-400 hover:text-red-400 font-bold"
+                        title="Remove attachment"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Chat Input Bar */}
-              <form onSubmit={handleSendChat} className="mt-4 pt-2">
+              <form onSubmit={handleSendChat} className="mt-2 pt-1">
                 <div
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl border ${
+                  className={`relative flex items-center gap-2 px-3 py-2 rounded-2xl border transition-all ${
                     isDarkMode ? "bg-[#28292c] border-[#36373b]" : "bg-white border-gray-300"
                   }`}
                 >
+                  {/* '+' Attachment Trigger Button */}
+                  <div className="relative" ref={attachMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setShowAttachMenu(!showAttachMenu)}
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-lg font-light transition ${
+                        showAttachMenu
+                          ? "bg-white text-black"
+                          : isDarkMode
+                          ? "text-gray-300 hover:bg-[#36373b]"
+                          : "text-gray-600 hover:bg-gray-200"
+                      }`}
+                      title="Attach camera capture, photos, or documents"
+                    >
+                      +
+                    </button>
+
+                    {/* Reference Attachment Popup Menu (Camera, Photos, Files) */}
+                    {showAttachMenu && (
+                      <div
+                        className={`absolute bottom-12 left-0 w-48 rounded-2xl shadow-2xl border p-2 z-50 backdrop-blur-md ${
+                          isDarkMode
+                            ? "bg-[#202124]/95 border-gray-700/80 text-white"
+                            : "bg-white/95 border-gray-200 text-gray-900"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            cameraInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-700/30 text-left text-sm font-medium transition"
+                        >
+                          <span className="w-8 h-8 rounded-full bg-gray-700/40 flex items-center justify-center text-base">
+                            📷
+                          </span>
+                          Camera
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            photoInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-700/30 text-left text-sm font-medium transition"
+                        >
+                          <span className="w-8 h-8 rounded-full bg-gray-700/40 flex items-center justify-center text-base">
+                            🖼
+                          </span>
+                          Photos
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowAttachMenu(false);
+                            fileInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-700/30 text-left text-sm font-medium transition"
+                        >
+                          <span className="w-8 h-8 rounded-full bg-gray-700/40 flex items-center justify-center text-base">
+                            📎
+                          </span>
+                          Files
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Main Text Input Field */}
                   <input
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Message Relay AI... (Press Enter to send)"
+                    placeholder={isListening ? "Listening... Speak now..." : "Ask Relay AI…"}
                     disabled={isStreaming}
                     className="flex-1 bg-transparent border-none outline-none text-sm px-2 py-1 text-inherit placeholder-gray-500"
                   />
+
+                  {/* Dedicated Speech-to-Text Microphone Button */}
+                  <button
+                    type="button"
+                    onClick={toggleVoiceDictation}
+                    className={`p-2 rounded-full transition flex items-center justify-center ${
+                      isListening
+                        ? "bg-red-600 text-white animate-pulse"
+                        : isDarkMode
+                        ? "text-gray-300 hover:bg-[#36373b]"
+                        : "text-gray-600 hover:bg-gray-200"
+                    }`}
+                    title={isListening ? "Listening... Click to stop" : "Voice Dictation (Speech to Text)"}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </button>
+
+                  {/* Send Button */}
                   <button
                     type="submit"
-                    disabled={isStreaming || !chatInput.trim()}
+                    disabled={isStreaming || (!chatInput.trim() && attachments.length === 0)}
                     className="px-4 py-1.5 rounded-lg bg-white text-black font-semibold text-xs hover:bg-gray-200 disabled:opacity-40 transition"
                   >
                     Send

@@ -17,7 +17,7 @@ from src.providers.models import ModelInfo
 
 logger = logging.getLogger("RelayAI.Gemini")
 
-DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
 class GeminiProvider(AIProvider):
@@ -111,7 +111,7 @@ class GeminiProvider(AIProvider):
         """Stream response chunks in real time from Google Gemini."""
         client = self._get_client()
         contents, config = self._prepare_contents(messages)
-        target_model = model.removeprefix("models/")
+        target_model = (model or DEFAULT_GEMINI_MODEL).removeprefix("models/")
 
         try:
             response_stream = client.models.generate_content_stream(
@@ -142,6 +142,29 @@ class GeminiProvider(AIProvider):
             )
 
         except Exception as exc:
+            if target_model != "gemini-3.5-flash-lite":
+                try:
+                    response_stream = client.models.generate_content_stream(
+                        model="gemini-3.5-flash-lite",
+                        contents=contents,
+                        config=config,
+                    )
+                    for chunk in response_stream:
+                        chunk_text = getattr(chunk, "text", "")
+                        if chunk_text:
+                            yield StreamChunk(
+                                delta=chunk_text,
+                                is_final=False,
+                                metadata=ResponseMetadata(model="gemini-3.5-flash-lite", provider_id=self.provider_id),
+                            )
+                    yield StreamChunk(
+                        delta="",
+                        is_final=True,
+                        metadata=ResponseMetadata(model="gemini-3.5-flash-lite", provider_id=self.provider_id, finish_reason="stop"),
+                    )
+                    return
+                except Exception:
+                    pass
             self._handle_exception(exc, target_model)
 
     def generate(
@@ -158,7 +181,7 @@ class GeminiProvider(AIProvider):
         else:
             contents, config = self._prepare_contents(messages)
 
-        target_model = model.removeprefix("models/")
+        target_model = (model or DEFAULT_GEMINI_MODEL).removeprefix("models/")
         try:
             response = client.models.generate_content(
                 model=target_model,
@@ -170,6 +193,18 @@ class GeminiProvider(AIProvider):
                 raise ProviderError("Gemini returned an empty response.", provider_id=self.provider_id)
             return text
         except Exception as exc:
+            if target_model != "gemini-3.5-flash-lite":
+                try:
+                    response = client.models.generate_content(
+                        model="gemini-3.5-flash-lite",
+                        contents=contents,
+                        config=config,
+                    )
+                    text = getattr(response, "text", "")
+                    if text:
+                        return text
+                except Exception:
+                    pass
             self._handle_exception(exc, target_model)
 
     def validate_connection(self) -> bool:
