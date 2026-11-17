@@ -21,6 +21,7 @@ import {
   saveConversationApi,
   deleteConversationApi,
   getApiBase,
+  isBackendConfigured,
   setCustomApiBase,
   resetApiBase,
   pingBackend,
@@ -747,6 +748,42 @@ export default function RelayAIWeb() {
                     Create Account
                   </button>
                 </div>
+
+                {/* Cloud Backend Configuration Notice if not set */}
+                {!isBackendConfigured() && (
+                  <div className="mb-5 p-3 rounded-xl bg-yellow-950/40 border border-yellow-700/60 text-yellow-200 text-xs space-y-2">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>⚙</span> Backend API Setup Required
+                    </div>
+                    <p className="text-[11px] text-yellow-300/80 leading-normal">
+                      Deployed on Vercel without a backend URL. Please supply your deployed Render URL below to connect across all devices:
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customBackendUrl}
+                        onChange={(e) => setCustomBackendUrl(e.target.value)}
+                        placeholder="https://your-app.onrender.com"
+                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-black/60 border border-yellow-700/60 text-xs text-white font-mono outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleTestBackend}
+                        disabled={isPingingBackend || !customBackendUrl.trim()}
+                        className="px-2.5 py-1.5 rounded-lg bg-yellow-500 hover:bg-yellow-400 text-black font-semibold text-xs transition disabled:opacity-50"
+                      >
+                        {isPingingBackend ? "Connecting..." : "Connect"}
+                      </button>
+                    </div>
+                    {backendPingResult && (
+                      <div className={`text-[11px] font-mono ${backendPingResult.ok ? "text-green-400" : "text-red-400"}`}>
+                        {backendPingResult.ok
+                          ? `✓ Connected in ${backendPingResult.latencyMs}ms!`
+                          : `✗ ${backendPingResult.error}`}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Error Banner */}
                 {authError && (

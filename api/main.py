@@ -61,12 +61,24 @@ app = FastAPI(
     description="Unified API backend for Relay AI Web & Desktop platforms",
 )
 
-# CORS configuration allowing Vercel, localhost, and custom frontend domains
+# Trusted production and development origins
+TRUSTED_ORIGINS = [
+    "https://relay-ai-gamma.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+]
+
+# Allow any Vercel deployment for this project (e.g. relay-ai-*.vercel.app)
+VERCEL_ORIGIN_REGEX = r"^https:\/\/relay-ai(-[a-z0-9\-]+)?\.vercel\.app$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*",
+    allow_origins=TRUSTED_ORIGINS,
+    allow_origin_regex=VERCEL_ORIGIN_REGEX,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 

@@ -4,12 +4,43 @@
 import { supabase } from "./supabase";
 
 /**
+ * Checks whether a valid backend API target is available for this client.
+ */
+export function isBackendConfigured(): boolean {
+  if (typeof window !== "undefined") {
+    try {
+      const custom = localStorage.getItem("relay_backend_url");
+      if (custom && custom.trim()) return true;
+    } catch {}
+
+    const hostname = window.location.hostname;
+    if (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname.endsWith(".local") ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("172.16.")
+    ) {
+      return true;
+    }
+
+    const envUrl = process.env.NEXT_PUBLIC_API_URL;
+    if (envUrl && envUrl.trim() && !envUrl.includes("localhost") && !envUrl.includes("127.0.0.1")) {
+      return true;
+    }
+    return false;
+  }
+  return Boolean(process.env.NEXT_PUBLIC_API_URL);
+}
+
+/**
  * Dynamically resolves the active Backend API base URL:
- * 1. Checks localStorage for a user-specified custom URL (useful for testing Render branches / local IPs).
+ * 1. Checks localStorage for a user-specified custom URL (useful for testing Render services / local IPs).
  * 2. Checks process.env.NEXT_PUBLIC_API_URL (provided at Vercel build time).
  * 3. On browser loopback (localhost / 127.0.0.1) -> defaults to "http://localhost:8000".
  * 4. On local network Wi-Fi (192.168.x.x / 10.x.x.x) -> dynamically points to that device's port 8000.
- * 5. On public production domains (*.vercel.app / custom domain) -> NEVER uses localhost; uses Render production URL.
+ * 5. On public production domains (*.vercel.app / custom domain) -> NEVER uses localhost or assumed URLs.
  */
 export function getApiBase(): string {
   if (typeof window !== "undefined") {
@@ -36,19 +67,25 @@ export function getApiBase(): string {
       return process.env.NEXT_PUBLIC_API_URL || `http://${hostname}:8000`;
     }
 
-    // Public production environment (Vercel, Render, custom domains)
+    // Public production environment (Vercel, custom domains)
+    const envUrl = process.env.NEXT_PUBLIC_API_URL;
     if (
-      process.env.NEXT_PUBLIC_API_URL &&
-      !process.env.NEXT_PUBLIC_API_URL.includes("localhost") &&
-      !process.env.NEXT_PUBLIC_API_URL.includes("127.0.0.1")
+      envUrl &&
+      envUrl.trim() &&
+      !envUrl.includes("localhost") &&
+      !envUrl.includes("127.0.0.1")
     ) {
-      return process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "");
+      return envUrl.trim().replace(/\/+$/, "");
     }
 
-    return "https://relay-ai-api.onrender.com";
+    return "";
   }
 
-  return process.env.NEXT_PUBLIC_API_URL || "https://relay-ai-api.onrender.com";
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (envUrl && envUrl.trim() && !envUrl.includes("localhost")) {
+    return envUrl.trim().replace(/\/+$/, "");
+  }
+  return "";
 }
 
 export function setCustomApiBase(url: string): void {
@@ -135,11 +172,14 @@ export interface TeamStep {
 function formatNetworkError(err: unknown): string {
   const base = getApiBase();
   const rawMsg = err instanceof Error ? err.message : String(err);
+  if (!base) {
+    return "Backend API URL is not configured. Please enter your Render backend service URL in Settings or configure NEXT_PUBLIC_API_URL in Vercel.";
+  }
   if (rawMsg.includes("Failed to fetch") || rawMsg.includes("NetworkError") || rawMsg.includes("fetch failed")) {
     if (typeof window !== "undefined" && window.location.hostname !== "localhost" && base.includes("localhost")) {
       return `Cross-Device Network Error: Cannot reach "${base}" from ${window.location.hostname}. Please open Settings and update your deployed Render backend URL.`;
     }
-    return `Unable to reach cloud backend at ${base}. If Render free-tier is waking up, this may take ~30 seconds. Verify or update backend URL in Settings.`;
+    return `Unable to reach backend at ${base}. If using a Render free-tier instance, it may be waking up (cold start ~30-50s). Please check your Render URL or test connection in Settings.`;
   }
   return rawMsg;
 }
@@ -155,7 +195,17 @@ export async function pingBackend(customUrl?: string): Promise<{
   error?: string;
   data?: any;
 }> {
-  const base = (customUrl || getApiBase()).replace(/\/+$/, "");
+  const base = (customUrl !== undefined ? customUrl : getApiBase()).replace(/\/+$/, "");
+  if (!base) {
+    return {
+      ok: false,
+      status: 0,
+      latencyMs: 0,
+      apiUrl: "",
+      error: "Backend API URL is empty. Please supply a valid URL (e.g. https://your-service.onrender.com).",
+    };
+  }
+
   const start = Date.now();
   try {
     const controller = new AbortController();
@@ -191,6 +241,16 @@ export async function pingBackend(customUrl?: string): Promise<{
 
 export async function fetchHealth() {
   const base = getApiBase();
+  if (!base) {
+    return {
+      status: "unconfigured",
+      app: "Relay AI Web Platform",
+      version: "1.0.0",
+      api_url: "Not Configured",
+      error: "Backend API URL is not set. Please configure in Settings.",
+    };
+  }
+
   try {
     const res = await fetch(`${base}/health`, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
@@ -208,13 +268,57 @@ export async function fetchHealth() {
 
 export async function fetchModels(): Promise<ModelOption[]> {
   const base = getApiBase();
+  if (!base) {
+    return [
+      {
+        id: "openai/gpt-oss-120b",
+        provider: "groq",
+        provider_name: "Groq LPU",
+        display_name: "GPT-OSS 120B",
+        context_window: 131072,
+        is_local: false,
+        configured: true,
+        supports_vision: false,
+      },
+      {
+        id: "qwen/qwen3.8-27b",
+        provider: "groq",
+        provider_name: "Groq LPU",
+        display_name: "Qwen 3.8 27B",
+        context_window: 131072,
+        is_local: false,
+        configured: true,
+        supports_vision: true,
+      },
+      {
+        id: "gemini-3.5-flash-lite",
+        provider: "gemini",
+        provider_name: "Google Gemini",
+        display_name: "Gemini 3.5 Flash Lite",
+        context_window: 1048576,
+        is_local: false,
+        configured: true,
+        supports_vision: true,
+      },
+      {
+        id: "gpt-4o-mini",
+        provider: "openai",
+        provider_name: "OpenAI",
+        display_name: "GPT-4o Mini",
+        context_window: 128000,
+        is_local: false,
+        configured: true,
+        supports_vision: true,
+      },
+    ];
+  }
+
   try {
     const res = await fetch(`${base}/api/models`, { cache: "no-store" });
     if (!res.ok) throw new Error("Failed to fetch models");
     const data = await res.json();
     return data.models || [];
   } catch {
-    // Return production fallback cloud models so UI remains functional
     return [
       {
         id: "openai/gpt-oss-120b",
@@ -269,6 +373,11 @@ export async function streamChat(
   onError: (err: string) => void
 ) {
   const base = getApiBase();
+  if (!base) {
+    onError("Backend API URL is not configured. Please enter your Render backend URL in Settings.");
+    return;
+  }
+
   try {
     const res = await fetch(`${base}/api/chat`, {
       method: "POST",
@@ -326,6 +435,9 @@ export async function streamChat(
 
 export async function routeQuery(prompt: string): Promise<RouteResponse> {
   const base = getApiBase();
+  if (!base) {
+    throw new Error("Backend API URL is not configured. Please enter your Render backend URL in Settings.");
+  }
   try {
     const res = await fetch(`${base}/api/route`, {
       method: "POST",
@@ -347,6 +459,9 @@ export async function compareModels(
   slots: { provider: string; model: string }[]
 ): Promise<{ summary?: string; results?: CompareResult[] }> {
   const base = getApiBase();
+  if (!base) {
+    throw new Error("Backend API URL is not configured. Please enter your Render backend URL in Settings.");
+  }
   try {
     const res = await fetch(`${base}/api/compare`, {
       method: "POST",
@@ -369,6 +484,9 @@ export async function runAITeam(
   model: string = "openai/gpt-oss-120b"
 ): Promise<{ deliverable?: string; final_deliverable?: string; steps?: TeamStep[]; duration_sec?: number }> {
   const base = getApiBase();
+  if (!base) {
+    throw new Error("Backend API URL is not configured. Please enter your Render backend URL in Settings.");
+  }
   try {
     const res = await fetch(`${base}/api/teams/run`, {
       method: "POST",
@@ -391,22 +509,25 @@ export async function runAITeam(
 
 export async function authLogin(email: string, pass: string) {
   if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password: pass,
-      });
-      if (!error && data.user) {
-        return {
-          user: { id: data.user.id, email: data.user.email || email },
-          token: data.session?.access_token,
-          notice: "Authenticated with Supabase Cloud Auth.",
-        };
-      }
-    } catch {}
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password: pass,
+    });
+    if (error) throw new Error(error.message);
+    if (data.user) {
+      return {
+        user: { id: data.user.id, email: data.user.email || email },
+        token: data.session?.access_token,
+        notice: "Authenticated with Supabase Cloud Auth.",
+      };
+    }
   }
 
   const base = getApiBase();
+  if (!base) {
+    throw new Error("Backend API URL is not configured. Please enter your Render backend URL in Settings or configure NEXT_PUBLIC_API_URL in Vercel.");
+  }
+
   try {
     const res = await fetch(`${base}/api/auth/login`, {
       method: "POST",
@@ -417,47 +538,33 @@ export async function authLogin(email: string, pass: string) {
       return res.json();
     }
     const err = await res.json().catch(() => ({ detail: "Authentication failed" }));
-    throw new Error(err.detail || "Authentication failed");
+    throw new Error(err.detail || `Authentication failed (HTTP ${res.status})`);
   } catch (err: any) {
-    // If remote backend is unreachable, gracefully grant verified device session
-    if (
-      err.message?.includes("Failed to fetch") ||
-      err.message?.includes("NetworkError") ||
-      err.message?.includes("Cross-Device")
-    ) {
-      const deviceUser = {
-        id: "usr_" + Math.random().toString(36).substring(2, 9),
-        email,
-        created_at: Date.now(),
-      };
-      return {
-        user: deviceUser,
-        token: "relay_device_session_" + deviceUser.id,
-        notice: "Signed in with device session (Backend offline or waking up).",
-      };
-    }
-    throw err;
+    throw new Error(formatNetworkError(err));
   }
 }
 
 export async function authSignup(email: string, pass: string) {
   if (supabase) {
-    try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password: pass,
-      });
-      if (!error && data.user) {
-        return {
-          user: { id: data.user.id, email: data.user.email || email },
-          token: data.session?.access_token,
-          message: "Sign up successful! Launching workspace...",
-        };
-      }
-    } catch {}
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: pass,
+    });
+    if (error) throw new Error(error.message);
+    if (data.user) {
+      return {
+        user: { id: data.user.id, email: data.user.email || email },
+        token: data.session?.access_token,
+        message: "Sign up successful! Launching workspace...",
+      };
+    }
   }
 
   const base = getApiBase();
+  if (!base) {
+    throw new Error("Backend API URL is not configured. Please enter your Render backend URL in Settings or configure NEXT_PUBLIC_API_URL in Vercel.");
+  }
+
   try {
     const res = await fetch(`${base}/api/auth/signup`, {
       method: "POST",
@@ -468,25 +575,9 @@ export async function authSignup(email: string, pass: string) {
       return res.json();
     }
     const err = await res.json().catch(() => ({ detail: "Sign up failed" }));
-    throw new Error(err.detail || "Sign up failed");
+    throw new Error(err.detail || `Sign up failed (HTTP ${res.status})`);
   } catch (err: any) {
-    if (
-      err.message?.includes("Failed to fetch") ||
-      err.message?.includes("NetworkError") ||
-      err.message?.includes("Cross-Device")
-    ) {
-      const deviceUser = {
-        id: "usr_" + Math.random().toString(36).substring(2, 9),
-        email,
-        created_at: Date.now(),
-      };
-      return {
-        user: deviceUser,
-        token: "relay_device_session_" + deviceUser.id,
-        message: "Account created successfully with device session.",
-      };
-    }
-    throw err;
+    throw new Error(formatNetworkError(err));
   }
 }
 
@@ -502,6 +593,7 @@ export async function authSignOut() {
 
 export async function fetchSavedConversations(): Promise<ChatSession[]> {
   const base = getApiBase();
+  if (!base) return [];
   try {
     const res = await fetch(`${base}/api/conversations`, { cache: "no-store" });
     if (!res.ok) return [];
@@ -514,6 +606,7 @@ export async function fetchSavedConversations(): Promise<ChatSession[]> {
 
 export async function saveConversationApi(session: ChatSession): Promise<boolean> {
   const base = getApiBase();
+  if (!base) return false;
   try {
     const res = await fetch(`${base}/api/conversations`, {
       method: "POST",
@@ -528,6 +621,7 @@ export async function saveConversationApi(session: ChatSession): Promise<boolean
 
 export async function deleteConversationApi(conversationId: string): Promise<boolean> {
   const base = getApiBase();
+  if (!base) return false;
   try {
     const res = await fetch(`${base}/api/conversations/${conversationId}`, {
       method: "DELETE",
