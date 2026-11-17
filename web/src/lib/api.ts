@@ -166,7 +166,22 @@ export async function runAITeam(task: string, provider: string = "groq", model: 
   return res.json();
 }
 
+import { supabase } from "./supabase";
+
 export async function authLogin(email: string, pass: string) {
+  if (supabase) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password: pass,
+    });
+    if (error) throw new Error(error.message);
+    return {
+      user: { id: data.user?.id || "usr_remote", email: data.user?.email || email },
+      token: data.session?.access_token,
+      notice: "Authenticated with Supabase Cloud Auth.",
+    };
+  }
+
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
