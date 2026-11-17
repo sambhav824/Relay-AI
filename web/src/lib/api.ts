@@ -15,7 +15,7 @@ export function isBackendConfigured(): boolean {
   if (typeof window !== "undefined") {
     try {
       const custom = localStorage.getItem("relay_backend_url");
-      if (custom && custom.trim()) return true;
+      if (custom && custom.trim() && !custom.includes("relay-ai-x92e.onrender.com")) return true;
     } catch {}
 
     const hostname = window.location.hostname;
@@ -56,7 +56,13 @@ export function getApiBase(): string {
     try {
       const custom = localStorage.getItem("relay_backend_url");
       if (custom && custom.trim()) {
-        return custom.trim().replace(/\/+$/, "");
+        const cleaned = custom.trim().replace(/\/+$/, "");
+        // Clean up outdated or invalid legacy Render endpoints
+        if (cleaned.includes("relay-ai-x92e.onrender.com")) {
+          localStorage.removeItem("relay_backend_url");
+        } else {
+          return cleaned;
+        }
       }
     } catch {}
 
