@@ -6,7 +6,7 @@ import { supabase } from "./supabase";
 /**
  * Verified production Render backend endpoint for Relay AI.
  */
-export const PRODUCTION_RENDER_BACKEND = "https://relay-ai-x92e.onrender.com";
+export const PRODUCTION_RENDER_BACKEND = "https://relay-ai-0r5f.onrender.com";
 
 /**
  * Checks whether a valid backend API target is available for this client.
