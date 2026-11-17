@@ -194,3 +194,39 @@ export async function authLogin(email: string, pass: string) {
   }
   return res.json();
 }
+
+export async function authSignup(email: string, pass: string) {
+  if (supabase) {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password: pass,
+    });
+    if (error) throw new Error(error.message);
+    return {
+      user: { id: data.user?.id || "usr_remote", email: data.user?.email || email },
+      token: data.session?.access_token,
+      message: "Sign up successful! You can now sign in.",
+    };
+  }
+
+  const res = await fetch(`${API_BASE}/api/auth/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password: pass }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "Sign up failed");
+  }
+  return res.json();
+}
+
+export async function authSignOut() {
+  if (supabase) {
+    await supabase.auth.signOut().catch(() => {});
+  }
+  if (typeof window !== "undefined") {
+    localStorage.removeItem("relay_user");
+    localStorage.removeItem("relay_token");
+  }
+}

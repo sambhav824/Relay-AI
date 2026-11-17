@@ -9,6 +9,8 @@ import {
   compareModels,
   runAITeam,
   authLogin,
+  authSignup,
+  authSignOut,
   ModelOption,
   ChatMessage,
   RouteResponse,
@@ -32,16 +34,18 @@ export default function RelayAIWeb() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(true);
 
-  // Auth State
-  const [user, setUser] = useState<{ id: string; email: string } | null>({
-    id: "usr_guest",
-    email: "guest@relay.ai",
-  });
-  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  // Authentication State
+  const [user, setUser] = useState<{ id: string; email: string } | null>(null);
+  const [isAuthLoaded, setIsAuthLoaded] = useState<boolean>(false);
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [authEmail, setAuthEmail] = useState<string>("");
   const [authPassword, setAuthPassword] = useState<string>("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState<string>("");
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [rememberMe, setRememberMe] = useState<boolean>(true);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
-  const [authNotice, setAuthNotice] = useState<string>("");
+  const [authError, setAuthError] = useState<string>("");
+  const [authSuccess, setAuthSuccess] = useState<string>("");
 
   // Health & Models
   const [healthData, setHealthData] = useState<HealthData | null>(null);
@@ -217,6 +221,14 @@ export default function RelayAIWeb() {
 
   // Initialize
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem("relay_user");
+      if (saved) {
+        setUser(JSON.parse(saved));
+      }
+    } catch {}
+    setIsAuthLoaded(true);
+
     fetchHealth().then(setHealthData).catch(() => {});
     fetchModels().then((m) => {
       setModels(m);
@@ -378,25 +390,377 @@ export default function RelayAIWeb() {
     }
   };
 
-  // Handle Auth Login
+  // Handle Authentication (Login / Signup)
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError("");
+    setAuthSuccess("");
+
+    const emailTrimmed = authEmail.trim();
+    if (!emailTrimmed || !emailTrimmed.includes("@") || !emailTrimmed.includes(".")) {
+      setAuthError("Please enter a valid email address.");
+      return;
+    }
+
+    if (authPassword.length < 6) {
+      setAuthError("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (authMode === "signup" && authPassword !== authConfirmPassword) {
+      setAuthError("Passwords do not match. Please verify.");
+      return;
+    }
+
     setAuthLoading(true);
-    setAuthNotice("");
     try {
-      const res = await authLogin(authEmail, authPassword);
-      setUser(res.user);
-      setShowAuthModal(false);
-      if (res.notice) {
-        alert(res.notice);
+      if (authMode === "signin") {
+        const res = await authLogin(emailTrimmed, authPassword);
+        setUser(res.user);
+        if (rememberMe) {
+          localStorage.setItem("relay_user", JSON.stringify(res.user));
+        }
+      } else {
+        const res = await authSignup(emailTrimmed, authPassword);
+        setAuthSuccess("Account created successfully! Launching Relay AI workspace...");
+        setTimeout(() => {
+          setUser(res.user);
+          if (rememberMe) {
+            localStorage.setItem("relay_user", JSON.stringify(res.user));
+          }
+        }, 600);
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to sign in";
-      setAuthNotice(msg);
+      const msg = e instanceof Error ? e.message : "Authentication failed";
+      setAuthError(msg);
     } finally {
       setAuthLoading(false);
     }
   };
+
+  // Instant Guest Access (Demo Mode)
+  const handleGuestLogin = () => {
+    const guestUser = {
+      id: "usr_guest_" + Math.random().toString(36).substring(2, 9),
+      email: "demo.guest@relay.ai",
+    };
+    setUser(guestUser);
+    if (rememberMe) {
+      localStorage.setItem("relay_user", JSON.stringify(guestUser));
+    }
+  };
+
+  // Sign Out
+  const handleSignOut = async () => {
+    await authSignOut();
+    setUser(null);
+    setAuthEmail("");
+    setAuthPassword("");
+    setAuthConfirmPassword("");
+    setAuthError("");
+    setAuthSuccess("");
+  };
+
+  // Splash Screen while restoring saved authentication session
+  if (!isAuthLoaded) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center ${isDarkMode ? "bg-[#202124] text-white" : "bg-[#F8F9FA] text-[#202124]"}`}>
+        <div className="w-14 h-14 rounded-2xl bg-white text-black text-2xl font-bold flex items-center justify-center animate-pulse mb-4 shadow-xl">
+          ✦
+        </div>
+        <h1 className="text-base font-bold tracking-wider">RELAY AI</h1>
+        <p className="text-xs text-gray-400 mt-1">Initializing secure multi-model workspace...</p>
+      </div>
+    );
+  }
+
+  // Full-Screen Dedicated Login & Sign-Up Page (Shown on initial visit before authentication)
+  if (!user) {
+    return (
+      <div className={`min-h-screen flex flex-col justify-between ${isDarkMode ? "bg-[#202124] text-white" : "bg-[#F8F9FA] text-[#202124]"}`}>
+        {/* Top Navbar */}
+        <header className={`h-16 px-6 md:px-12 flex items-center justify-between border-b ${isDarkMode ? "border-[#36373b] bg-[#202124]/80" : "border-gray-200 bg-white/80"} backdrop-blur-md sticky top-0 z-40`}>
+          <div className="flex items-center gap-3">
+            <span className="w-8 h-8 rounded-lg bg-white text-black font-bold text-sm flex items-center justify-center shadow-md">
+              ✦
+            </span>
+            <div>
+              <h1 className="text-sm font-bold tracking-tight">RELAY AI</h1>
+              <p className="text-[10px] text-gray-400">Think Together. Work Smarter.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className={`p-2 rounded-lg text-xs border transition ${isDarkMode ? "border-gray-700 hover:bg-gray-800 text-gray-300" : "border-gray-300 hover:bg-gray-100 text-gray-700"}`}
+              title="Toggle theme"
+            >
+              {isDarkMode ? "☼ Light Mode" : "☽ Dark Mode"}
+            </button>
+          </div>
+        </header>
+
+        {/* Main Split Grid */}
+        <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-8 lg:p-12 flex items-center justify-center">
+          <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+            {/* Left: Dedicated Auth Form Card */}
+            <div className="lg:col-span-6 xl:col-span-5 w-full max-w-md mx-auto">
+              <div className={`p-6 sm:p-8 rounded-3xl border shadow-2xl transition-all ${isDarkMode ? "bg-[#28292c] border-[#36373b]" : "bg-white border-gray-200"}`}>
+                {/* Form Header */}
+                <div className="text-center mb-6">
+                  <div className="w-10 h-10 rounded-2xl bg-white text-black font-bold text-lg flex items-center justify-center mx-auto mb-3 shadow">
+                    ✦
+                  </div>
+                  <h2 className="text-xl font-bold tracking-tight">
+                    {authMode === "signin" ? "Sign in to Relay AI" : "Create your account"}
+                  </h2>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {authMode === "signin"
+                      ? "Access multi-model orchestration, voice dictation, and AI teams."
+                      : "Start collaborating with frontier AI models in a unified workspace."}
+                  </p>
+                </div>
+
+                {/* Segmented Mode Switcher */}
+                <div className={`flex p-1 rounded-xl mb-6 border ${isDarkMode ? "bg-[#202124] border-gray-700/60" : "bg-gray-100 border-gray-200"}`}>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode("signin"); setAuthError(""); setAuthSuccess(""); }}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                      authMode === "signin"
+                        ? isDarkMode
+                          ? "bg-[#36373b] text-white shadow"
+                          : "bg-white text-black shadow"
+                        : "text-gray-400 hover:text-inherit"
+                    }`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccess(""); }}
+                    className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${
+                      authMode === "signup"
+                        ? isDarkMode
+                          ? "bg-[#36373b] text-white shadow"
+                          : "bg-white text-black shadow"
+                        : "text-gray-400 hover:text-inherit"
+                    }`}
+                  >
+                    Create Account
+                  </button>
+                </div>
+
+                {/* Error Banner */}
+                {authError && (
+                  <div className="mb-4 p-3 rounded-xl bg-red-900/30 border border-red-700/50 text-red-300 text-xs flex items-start gap-2">
+                    <span className="font-bold">⚠</span>
+                    <span>{authError}</span>
+                  </div>
+                )}
+
+                {/* Success Banner */}
+                {authSuccess && (
+                  <div className="mb-4 p-3 rounded-xl bg-green-900/30 border border-green-700/50 text-green-300 text-xs flex items-start gap-2">
+                    <span className="font-bold">✓</span>
+                    <span>{authSuccess}</span>
+                  </div>
+                )}
+
+                {/* Auth Form */}
+                <form onSubmit={handleAuthSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                      Email Address
+                    </label>
+                    <div className={`flex items-center px-3.5 py-2.5 rounded-xl border transition-all ${isDarkMode ? "bg-[#202124] border-gray-700 focus-within:border-white" : "bg-gray-50 border-gray-300 focus-within:border-black"}`}>
+                      <span className="text-gray-400 mr-2 text-sm">✉</span>
+                      <input
+                        type="email"
+                        value={authEmail}
+                        onChange={(e) => setAuthEmail(e.target.value)}
+                        placeholder="you@company.com"
+                        required
+                        className="w-full bg-transparent border-none outline-none text-xs text-inherit placeholder-gray-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                      Password
+                    </label>
+                    <div className={`flex items-center px-3.5 py-2.5 rounded-xl border transition-all ${isDarkMode ? "bg-[#202124] border-gray-700 focus-within:border-white" : "bg-gray-50 border-gray-300 focus-within:border-black"}`}>
+                      <span className="text-gray-400 mr-2 text-sm">🔒</span>
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                        minLength={6}
+                        className="w-full bg-transparent border-none outline-none text-xs text-inherit placeholder-gray-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="text-gray-400 hover:text-inherit text-xs transition"
+                        title={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {authMode === "signup" && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1.5">
+                        Confirm Password
+                      </label>
+                      <div className={`flex items-center px-3.5 py-2.5 rounded-xl border transition-all ${isDarkMode ? "bg-[#202124] border-gray-700 focus-within:border-white" : "bg-gray-50 border-gray-300 focus-within:border-black"}`}>
+                        <span className="text-gray-400 mr-2 text-sm">🔒</span>
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          value={authConfirmPassword}
+                          onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                          placeholder="••••••••"
+                          required
+                          minLength={6}
+                          className="w-full bg-transparent border-none outline-none text-xs text-inherit placeholder-gray-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between text-xs">
+                    <label className="flex items-center gap-2 cursor-pointer text-gray-400 hover:text-inherit">
+                      <input
+                        type="checkbox"
+                        checked={rememberMe}
+                        onChange={(e) => setRememberMe(e.target.checked)}
+                        className="rounded border-gray-600 accent-white"
+                      />
+                      <span>Remember this device</span>
+                    </label>
+                    <span className="text-gray-500 hover:text-gray-400 cursor-pointer" onClick={() => alert("Please use your registered credentials or sign in using guest access.")}>
+                      Need help?
+                    </span>
+                  </div>
+
+                  {/* Primary Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full py-3 rounded-xl bg-white text-black font-bold text-xs hover:bg-gray-200 transition-all shadow-md disabled:opacity-50 flex items-center justify-center gap-2 mt-2"
+                  >
+                    {authLoading ? (
+                      <>
+                        <span className="animate-spin text-sm">✦</span>
+                        <span>{authMode === "signin" ? "Signing In..." : "Creating Account..."}</span>
+                      </>
+                    ) : (
+                      <span>{authMode === "signin" ? "Sign In to Relay AI →" : "Create Free Account →"}</span>
+                    )}
+                  </button>
+                </form>
+
+                {/* Divider */}
+                <div className="relative my-6 text-center">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className={`w-full border-t ${isDarkMode ? "border-gray-700/50" : "border-gray-200"}`}></div>
+                  </div>
+                  <span className={`relative px-3 text-[11px] ${isDarkMode ? "bg-[#28292c] text-gray-500" : "bg-white text-gray-400"}`}>
+                    or quick explore
+                  </span>
+                </div>
+
+                {/* Guest / Demo Bypass Option */}
+                <button
+                  type="button"
+                  onClick={handleGuestLogin}
+                  className={`w-full py-2.5 px-4 rounded-xl border text-xs font-semibold transition flex items-center justify-between ${
+                    isDarkMode
+                      ? "border-gray-700 hover:bg-gray-700/30 text-gray-300 hover:text-white"
+                      : "border-gray-300 hover:bg-gray-100 text-gray-700 hover:text-black"
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span>⚡</span> Continue as Guest (Demo Access)
+                  </span>
+                  <span>→</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right: Feature Highlights & Showcase */}
+            <div className="hidden lg:block lg:col-span-6 xl:col-span-7 space-y-6 pl-4">
+              <div className="space-y-3">
+                <span className="px-3 py-1 rounded-full text-[11px] font-mono border border-gray-600/50 text-gray-400 inline-block">
+                  Unified AI Operating System
+                </span>
+                <h2 className="text-3xl xl:text-4xl font-extrabold tracking-tight leading-tight">
+                  One workspace for frontier models and autonomous teams.
+                </h2>
+                <p className="text-sm text-gray-400 max-w-lg leading-relaxed">
+                  Switch effortlessly between Groq LPU speed, Google Gemini 3.5 reasoning, and OpenAI GPT-4o with integrated voice dictation, smart intent routing, and 5-agent pipeline execution.
+                </p>
+              </div>
+
+              {/* Showcase Cards Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                <div className={`p-4 rounded-2xl border ${isDarkMode ? "bg-[#28292c]/40 border-gray-700/40" : "bg-white border-gray-200 shadow-sm"}`}>
+                  <div className="text-base mb-1">🧭</div>
+                  <h4 className="text-xs font-bold mb-1">Autonomous AI Teams</h4>
+                  <p className="text-[11px] text-gray-400 leading-normal">
+                    5-agent pipeline: Planner, Researcher, Creator, Critic, and Finalizer collaborate synchronously.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border ${isDarkMode ? "bg-[#28292c]/40 border-gray-700/40" : "bg-white border-gray-200 shadow-sm"}`}>
+                  <div className="text-base mb-1">✦</div>
+                  <h4 className="text-xs font-bold mb-1">Intelligent Router</h4>
+                  <p className="text-[11px] text-gray-400 leading-normal">
+                    Classifies prompt complexity and domain in real time to dispatch queries to optimal models.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border ${isDarkMode ? "bg-[#28292c]/40 border-gray-700/40" : "bg-white border-gray-200 shadow-sm"}`}>
+                  <div className="text-base mb-1">⚖️</div>
+                  <h4 className="text-xs font-bold mb-1">Side-by-Side Compare</h4>
+                  <p className="text-[11px] text-gray-400 leading-normal">
+                    Concurrently evaluate response quality, token throughput, and latency across providers.
+                  </p>
+                </div>
+
+                <div className={`p-4 rounded-2xl border ${isDarkMode ? "bg-[#28292c]/40 border-gray-700/40" : "bg-white border-gray-200 shadow-sm"}`}>
+                  <div className="text-base mb-1">🎙</div>
+                  <h4 className="text-xs font-bold mb-1">Speech & Documents</h4>
+                  <p className="text-[11px] text-gray-400 leading-normal">
+                    Real-time speech-to-text dictation, camera capture, and document parsing (PDF, DOCX, Code).
+                  </p>
+                </div>
+              </div>
+
+              {/* System Badge */}
+              <div className={`p-4 rounded-2xl border flex items-center justify-between ${isDarkMode ? "bg-[#28292c]/60 border-gray-700/50" : "bg-gray-100 border-gray-200"}`}>
+                <div className="flex items-center gap-3">
+                  <span className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
+                  <span className="text-xs font-medium">Production Cloud Active · Zero Telemetry Vault</span>
+                </div>
+                <span className="text-[11px] text-gray-400 font-mono">v1.0.0</span>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        {/* Footer */}
+        <footer className={`py-4 text-center text-[11px] border-t ${isDarkMode ? "border-gray-800 text-gray-500" : "border-gray-200 text-gray-400"}`}>
+          Relay AI · Monochromatic Intelligence Platform · Encrypted Session Storage
+        </footer>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen flex flex-col md:flex-row ${isDarkMode ? "bg-[#202124] text-white" : "bg-[#F8F9FA] text-[#202124]"}`}>
@@ -464,12 +828,18 @@ export default function RelayAIWeb() {
         <div className="pt-4 border-t border-gray-700/30 space-y-2">
           {sidebarOpen && (
             <div className="flex items-center justify-between px-2 py-1.5 text-xs text-gray-400">
-              <span className="truncate">{user ? user.email : "Not signed in"}</span>
+              <div className="flex items-center gap-2 truncate max-w-[130px]">
+                <div className="w-6 h-6 rounded-full bg-white text-black font-bold flex items-center justify-center text-[10px] shrink-0 shadow">
+                  {user.email.charAt(0).toUpperCase()}
+                </div>
+                <span className="truncate font-medium text-gray-300">{user.email}</span>
+              </div>
               <button
-                onClick={() => setShowAuthModal(true)}
-                className="text-xs underline hover:text-white"
+                onClick={handleSignOut}
+                className="text-xs text-red-400 hover:text-red-300 transition shrink-0 underline font-medium"
+                title="Sign Out of Relay AI"
               >
-                {user ? "Account" : "Sign In"}
+                Sign Out
               </button>
             </div>
           )}
@@ -1095,62 +1465,26 @@ export default function RelayAIWeb() {
                   <div>Sync Mode: Outbox Lease Queue</div>
                 </div>
               </div>
+
+              {/* Current Account Session Card */}
+              <div className="p-5 rounded-xl border border-gray-700/50 bg-[#28292c]/40 space-y-3">
+                <h4 className="text-sm font-bold">Current Account Session</h4>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div>Email: <span className="text-white font-medium">{user.email}</span></div>
+                  <div>User ID: <span className="font-mono text-gray-300">{user.id}</span></div>
+                  <div>Session Status: <span className="text-green-400 font-medium">✓ Active</span></div>
+                </div>
+                <button
+                  onClick={handleSignOut}
+                  className="mt-2 px-4 py-2 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-400 text-xs font-semibold border border-red-500/30 transition"
+                >
+                  Sign Out of Relay AI
+                </button>
+              </div>
             </div>
           )}
         </div>
       </main>
-
-      {/* Auth Modal */}
-      {showAuthModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-md p-6 rounded-2xl bg-[#202124] border border-gray-700 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold">Sign in to Relay AI</h3>
-              <button onClick={() => setShowAuthModal(false)} className="text-gray-400 hover:text-white">✕</button>
-            </div>
-
-            {authNotice && (
-              <div className="p-2.5 rounded bg-yellow-900/40 text-yellow-300 text-xs">
-                {authNotice}
-              </div>
-            )}
-
-            <form onSubmit={handleAuthSubmit} className="space-y-3">
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Email</label>
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  required
-                  placeholder="user@example.com"
-                  className="w-full px-3 py-2 rounded-lg bg-[#28292c] border border-gray-700 text-xs text-white outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">Password</label>
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  className="w-full px-3 py-2 rounded-lg bg-[#28292c] border border-gray-700 text-xs text-white outline-none"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={authLoading}
-                className="w-full py-2.5 rounded-lg bg-white text-black font-semibold text-xs hover:bg-gray-200 transition"
-              >
-                {authLoading ? "Authenticating..." : "Continue"}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
