@@ -13,6 +13,7 @@ from src.core.comparison import (
     ComparisonSlotResult,
 )
 from src.providers.manager import ProviderManager
+from src.ui.theme import get_theme, badge_style, RAVEN, CHARCOAL, WHITE, GRAY
 
 
 class ModelSlotCard(QFrame):
@@ -79,9 +80,9 @@ class ModelSlotCard(QFrame):
         self.copy_btn.setEnabled(False)
         footer_layout.addWidget(self.copy_btn)
 
-        self.select_btn = QPushButton("✓ Commit to Chat")
+        self.select_btn = QPushButton("✓ Use this response")
         self.select_btn.setObjectName("Primary")
-        self.select_btn.setToolTip("Commit this model's answer into the shared conversation context")
+        self.select_btn.setToolTip("Use this model's response in the conversation")
         self.select_btn.clicked.connect(self._on_select_clicked)
         self.select_btn.setEnabled(False)
         footer_layout.addWidget(self.select_btn, 1)
@@ -90,15 +91,16 @@ class ModelSlotCard(QFrame):
 
     def apply_theme(self, dark: bool):
         self.dark = dark
-        bg = "#191C23" if dark else "#FFFFFF"
-        border = "#292E39" if dark else "#E1E4EC"
-        tb_bg = "#14171E" if dark else "#F8FAFC"
-        tb_color = "#E8EAF0" if dark else "#202432"
-        tb_border = "#282E3B" if dark else "#E2E8F0"
+        t = get_theme(dark)
+        bg = t.bg_card
+        border = t.border_strong
+        tb_bg = t.bg_sunken
+        tb_color = t.text_primary
+        tb_border = t.border_subtle
 
-        self.setStyleSheet(f"QFrame#Panel {{ background: {bg}; border: 1px solid {border}; border-radius: 12px; }}")
+        self.setStyleSheet(f"QFrame#Panel {{ background: {bg}; border: 1px solid {border}; border-radius: 8px; }}")
         self.transcript.setStyleSheet(
-            f"QTextBrowser {{ background: {tb_bg}; color: {tb_color}; border: 1px solid {tb_border}; border-radius: 8px; padding: 10px; }}"
+            f"QTextBrowser {{ background: {tb_bg}; color: {tb_color}; border: 1px solid {tb_border}; border-radius: 6px; padding: 10px; }}"
         )
         self._refresh_content()
 
@@ -106,6 +108,17 @@ class ModelSlotCard(QFrame):
         self.provider_id = provider_id
         self.model_name = model_name
         self.title_label.setText(f"✦ {provider_id.title()} · {model_name}")
+
+    def reset_view(self):
+        """Reset slot to clean ready state without showing thinking indicators."""
+        self.content_buffer = ""
+        self.result = None
+        self.is_thinking = False
+        self.transcript.clear()
+        self.metrics_bar.setText("Time: --  ·  Tokens: --  ·  Speed: --  ·  Cost: --")
+        self.set_status("Ready", "#757575")
+        self.copy_btn.setEnabled(False)
+        self.select_btn.setEnabled(False)
 
     def reset_for_stream(self):
         self.content_buffer = ""
@@ -297,13 +310,15 @@ class ComparisonView(QWidget):
         row.addWidget(num_lbl)
 
         prov_combo = QComboBox()
-        prov_combo.setFixedWidth(110)
+        prov_combo.setMinimumWidth(100)
+        prov_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         providers = self.provider_manager.list_providers()
         for p in providers:
             prov_combo.addItem(p.display_name, p.provider_id)
 
         model_combo = QComboBox()
-        model_combo.setFixedWidth(150)
+        model_combo.setMinimumWidth(140)
+        model_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
 
         def populate_slot_models():
             model_combo.clear()
@@ -313,7 +328,11 @@ class ComparisonView(QWidget):
                 try:
                     models = prov.get_available_models()
                     if models:
-                        for m in models:
+                        chat_models = [
+                            m for m in models
+                            if not any(emb in m.id.lower() for emb in ("embed", "embedding", "bge-", "all-minilm", "arctic-embed"))
+                        ]
+                        for m in (chat_models if chat_models else models):
                             model_combo.addItem(m.id)
                         return
                 except Exception:
@@ -443,7 +462,7 @@ class ComparisonView(QWidget):
     def reset_comparison(self):
         self.summary_banner.setVisible(False)
         for card in self.slot_cards.values():
-            card.reset_for_stream()
+            card.reset_view()
 
     def update_slot_chunk(self, slot_id: int, delta: str):
         if slot_id in self.slot_cards:
@@ -491,10 +510,11 @@ class ComparisonView(QWidget):
 
     def apply_theme(self, dark: bool):
         self.dark = dark
-        bg = "#191C23" if dark else "#FFFFFF"
-        border = "#292E39" if dark else "#E1E4EC"
-        self.config_bar.setStyleSheet(f"QFrame#Panel {{ background: {bg}; border: 1px solid {border}; border-radius: 12px; }}")
-        self.summary_banner.setStyleSheet(f"QFrame#Panel {{ background: {bg}; border: 1px solid {border}; border-radius: 12px; }}")
+        t = get_theme(dark)
+        bg = t.bg_card
+        border = t.border_strong
+        self.config_bar.setStyleSheet(f"QFrame#Panel {{ background: {bg}; border: 1px solid {border}; border-radius: 8px; }}")
+        self.summary_banner.setStyleSheet(f"QFrame#Panel {{ background: {bg}; border: 1px solid {border}; border-radius: 8px; }}")
 
         for card in self.slot_cards.values():
             card.apply_theme(dark)

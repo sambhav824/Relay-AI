@@ -74,6 +74,7 @@ class ModelRouter:
         provider_exclusions: Optional[Set[str]] = None,
         local_only: bool = False,
         required_capability: Optional[TaskType] = None,
+        has_images: bool = False,
     ) -> RoutingDecision:
         """Evaluate prompt and constraints to produce an optimal RoutingDecision.
 
@@ -84,6 +85,7 @@ class ModelRouter:
             provider_exclusions: Optional set of provider IDs to omit.
             local_only: If True, strictly excludes all cloud providers.
             required_capability: Optional specific TaskType capability required.
+            has_images: If True, requires vision-enabled multimodal models.
 
         Returns:
             RoutingDecision containing primary candidate, fallback chain (up to 2), and explanation.
@@ -92,7 +94,10 @@ class ModelRouter:
             NoEligibleModelsError: If zero models qualify under the specified constraints.
         """
         # 1. Deterministic Task Classification
-        classification = self.classifier.classify(prompt, history=history)
+        if has_images and not required_capability:
+            required_capability = TaskType.VISION
+
+        classification = self.classifier.classify(prompt, history=history, has_images=has_images)
         task = required_capability or classification.task_type
 
         # 2. Conservative Context Window Estimation (without mutating history)

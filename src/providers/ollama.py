@@ -34,6 +34,24 @@ class OllamaProvider(AIProvider):
         self.generate_url = f"{self.base_url}/api/generate"
         self.tags_url = f"{self.base_url}/api/tags"
 
+    def _format_messages(self, normalized: List[Message]) -> List[Dict[str, Any]]:
+        """Format normalized messages for Ollama API with vision base64 support."""
+        from src.core.images import encode_image_to_raw_base64
+        results = []
+        for m in normalized:
+            d = {"role": m.role.value, "content": m.content}
+            imgs = getattr(m, "images", None)
+            if imgs:
+                raw_b64s = []
+                for p in imgs:
+                    raw = encode_image_to_raw_base64(p)
+                    if raw:
+                        raw_b64s.append(raw)
+                if raw_b64s:
+                    d["images"] = raw_b64s
+            results.append(d)
+        return results
+
     def stream(
         self,
         messages: List[Union[Message, Dict[str, Any]]],
@@ -44,9 +62,12 @@ class OllamaProvider(AIProvider):
         normalized = self.normalize_messages(messages)
         payload = {
             "model": model,
-            "messages": [m.to_dict() for m in normalized],
+            "messages": self._format_messages(normalized),
             "stream": True,
         }
+        max_output_tokens = kwargs.get("max_output_tokens")
+        if max_output_tokens is not None:
+            payload["options"] = {"num_predict": max(1, int(max_output_tokens))}
 
         try:
             with httpx.stream(
@@ -120,10 +141,13 @@ class OllamaProvider(AIProvider):
             normalized = self.normalize_messages(messages)
             payload = {
                 "model": model,
-                "messages": [m.to_dict() for m in normalized],
+                "messages": self._format_messages(normalized),
                 "stream": False,
             }
             endpoint = self.chat_url
+        max_output_tokens = kwargs.get("max_output_tokens")
+        if max_output_tokens is not None:
+            payload["options"] = {"num_predict": max(1, int(max_output_tokens))}
 
         try:
             response = httpx.post(

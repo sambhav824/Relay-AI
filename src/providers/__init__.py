@@ -5,6 +5,10 @@ from src.providers.exceptions import (
     ProviderConnectionError,
     ProviderAuthenticationError,
     ProviderRateLimitError,
+    ProviderQuotaError,
+    ProviderBillingError,
+    ProviderPermissionError,
+    ProviderServerError,
     ModelNotFoundError,
     ProviderTimeoutError,
 )
@@ -12,6 +16,8 @@ from src.providers.ollama import OllamaProvider, stream_chat, generate
 from src.providers.gemini import GeminiProvider
 from src.providers.groq import GroqProvider
 from src.providers.openai import OpenAIProvider
+from src.providers.openrouter import OpenRouterProvider
+from src.providers.mock import MockProvider
 from src.providers.embeddings import (
     EmbeddingProvider,
     OpenAIEmbeddingProvider,
@@ -29,12 +35,18 @@ __all__ = [
     "ProviderConnectionError",
     "ProviderAuthenticationError",
     "ProviderRateLimitError",
+    "ProviderQuotaError",
+    "ProviderBillingError",
+    "ProviderPermissionError",
+    "ProviderServerError",
     "ModelNotFoundError",
     "ProviderTimeoutError",
     "OllamaProvider",
     "GeminiProvider",
     "GroqProvider",
     "OpenAIProvider",
+    "OpenRouterProvider",
+    "MockProvider",
     "EmbeddingProvider",
     "OpenAIEmbeddingProvider",
     "OllamaEmbeddingProvider",

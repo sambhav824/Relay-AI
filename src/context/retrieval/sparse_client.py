@@ -349,11 +349,13 @@ class SparseRetrievalClient:
             except Exception:
                 meta = {}
 
-            # Multi-profile isolation: if user is authenticated and chunk has owner_user_id,
-            # enforce that chunk belongs to caller
+            # Multi-profile isolation:
+            # 1. Chunks owned by a specific user must NEVER be exposed to unauthenticated callers.
+            # 2. Authenticated callers can only access chunks owned by their user_id (or unowned local chunks).
             chunk_owner = meta.get("owner_user_id")
-            if active_user_id and chunk_owner and chunk_owner != active_user_id:
-                continue
+            if chunk_owner:
+                if not active_user_id or active_user_id != chunk_owner:
+                    continue
 
             # In SQLite FTS5, rank is more negative for better matches.
             # Invert rank (-bm25_rank) so higher numerical score indicates better relevance.

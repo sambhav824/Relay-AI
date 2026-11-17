@@ -227,6 +227,14 @@ class TestSparseRetrievalClient(TestCase):
         self.assertEqual(results[0].id, "user1_chunk")
         self.assertEqual(results[0].metadata["owner_user_id"], "user-uuid-1")
 
+        # Unauthenticated client (no active user session) must NOT see user-owned chunks
+        client_unauth = SparseRetrievalClient(
+            sqlite_connection=self.sqlite_conn,
+            auth_manager=None,
+        )
+        unauth_results = client_unauth.search_keywords("confidential database", prefer_offline=True)
+        self.assertEqual(len(unauth_results), 0, "Unauthenticated client must not access user-owned chunks")
+
     def test_network_failure_without_sqlite_raises_rpc_error(self):
         """Verify network connection failure raises SparseClientRPCError when no local SQLite fallback exists."""
         def handler(request: httpx.Request):

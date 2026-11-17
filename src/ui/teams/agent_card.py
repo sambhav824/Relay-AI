@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from src.agents.models import AgentRole, AgentStatus
 from src.teams.observer import TeamExecutionSnapshot
+from src.ui.theme import get_theme, badge_style, RAVEN, CHARCOAL, WHITE, GRAY
 from src.workflow.models import StepExecutionRecord, WorkflowStatus
 
 
@@ -481,53 +482,30 @@ class AgentStepCard(QFrame):
             self.tokens_label.setToolTip("Tokens unavailable")
 
     def _apply_theme(self) -> None:
-        """Apply comprehensive styling according to active theme."""
-        if self.dark:
-            card_bg = "#1A1F2C"
-            card_border = "#2B3545"
-            text_pri = "#F1F5F9"
-            text_sec = "#94A3B8"
-            text_muted = "#64748B"
-            order_bg = "#263042"
-            order_color = "#93C5FD"
-            role_bg = "#1E293B"
-            role_color = "#38BDF8"
-            box_bg = "#11141A"
-            box_border = "#2A3140"
-            box_color = "#E2E8F0"
-            critic_bg = "#2B2113"
-            critic_border = "#92400E"
-            critic_title = "#FDE68A"
-            critic_text = "#FEF3C7"
-            err_bg = "#2B1416"
-            err_border = "#991B1B"
-            err_title = "#FCA5A5"
-            err_text = "#FECACA"
-            combo_bg = "#1E2430"
-            combo_border = "#334155"
-        else:
-            card_bg = "#FFFFFF"
-            card_border = "#E2E8F0"
-            text_pri = "#0F172A"
-            text_sec = "#475569"
-            text_muted = "#94A3B8"
-            order_bg = "#EFF6FF"
-            order_color = "#1D4ED8"
-            role_bg = "#F0F9FF"
-            role_color = "#0284C7"
-            box_bg = "#F8FAFC"
-            box_border = "#CBD5E1"
-            box_color = "#1E293B"
-            critic_bg = "#FFFBEB"
-            critic_border = "#F59E0B"
-            critic_title = "#92400E"
-            critic_text = "#78350F"
-            err_bg = "#FEF2F2"
-            err_border = "#EF4444"
-            err_title = "#991B1B"
-            err_text = "#7F1D1D"
-            combo_bg = "#FFFFFF"
-            combo_border = "#CBD5E1"
+        """Apply comprehensive styling according to active centralized theme."""
+        t = get_theme(self.dark)
+        card_bg = t.bg_card
+        card_border = t.border_strong
+        text_pri = t.text_primary
+        text_sec = t.text_secondary
+        text_muted = t.text_muted
+        order_bg = t.bg_elevated if self.dark else t.bg_sunken
+        order_color = t.text_primary
+        role_bg = t.bg_elevated if self.dark else t.bg_sunken
+        role_color = t.text_primary
+        box_bg = t.bg_sunken
+        box_border = t.border_subtle
+        box_color = t.text_primary
+        critic_bg = t.bg_elevated
+        critic_border = t.border_focus
+        critic_title = t.text_primary
+        critic_text = t.text_primary
+        err_bg = t.bg_sunken
+        err_border = t.border_focus
+        err_title = t.text_primary
+        err_text = t.text_primary
+        combo_bg = t.bg_card
+        combo_border = t.border_strong
 
         self.setStyleSheet(
             f"AgentStepCard {{"
@@ -548,15 +526,15 @@ class AgentStepCard(QFrame):
         )
 
         self.provider_model_label.setStyleSheet(
-            f"color: {text_sec}; font-size: 12px; font-family: Consolas, monospace;"
+            f"color: {text_sec}; font-size: 12px; font-family: Consolas, monospace; background-color: transparent;"
         )
 
         self.duration_label.setStyleSheet(
-            f"color: {text_muted}; font-size: 11px; font-family: Consolas, monospace;"
+            f"color: {text_muted}; font-size: 11px; font-family: Consolas, monospace; background-color: transparent;"
         )
 
         self.tokens_label.setStyleSheet(
-            f"color: {text_muted}; font-size: 11px; font-family: Consolas, monospace;"
+            f"color: {text_muted}; font-size: 11px; font-family: Consolas, monospace; background-color: transparent;"
         )
 
         self.expand_btn.setStyleSheet(
@@ -573,7 +551,7 @@ class AgentStepCard(QFrame):
             f"}}"
         )
 
-        self.revision_title.setStyleSheet(f"color: {text_sec}; font-size: 12px; font-weight: 600;")
+        self.revision_title.setStyleSheet(f"color: {text_sec}; font-size: 12px; font-weight: 600; background-color: transparent;")
         self.revision_combo.setStyleSheet(
             f"QComboBox {{"
             f"  background-color: {combo_bg};"
@@ -591,22 +569,22 @@ class AgentStepCard(QFrame):
         self.critic_box.setStyleSheet(
             f"QFrame {{"
             f"  background-color: {critic_bg};"
-            f"  border: 1px solid {critic_border};"
+            f"  border: 1px dashed {critic_border};"
             f"  border-radius: 6px;"
             f"}}"
         )
-        self.critic_title.setStyleSheet(f"color: {critic_title}; font-weight: bold; font-size: 11px;")
-        self.critic_text.setStyleSheet(f"color: {critic_text}; font-size: 12px;")
+        self.critic_title.setStyleSheet(f"color: {critic_title}; font-weight: bold; font-size: 11px; background-color: transparent;")
+        self.critic_text.setStyleSheet(f"color: {critic_text}; font-size: 12px; background-color: transparent;")
 
         self.error_box.setStyleSheet(
             f"QFrame {{"
             f"  background-color: {err_bg};"
-            f"  border: 1px solid {err_border};"
+            f"  border: 2px solid {err_border};"
             f"  border-radius: 6px;"
             f"}}"
         )
-        self.error_title.setStyleSheet(f"color: {err_title}; font-weight: bold; font-size: 11px;")
-        self.error_text.setStyleSheet(f"color: {err_text}; font-size: 12px;")
+        self.error_title.setStyleSheet(f"color: {err_title}; font-weight: bold; font-size: 11px; background-color: transparent;")
+        self.error_text.setStyleSheet(f"color: {err_text}; font-size: 12px; background-color: transparent;")
 
         self.output_viewer.setStyleSheet(
             f"QTextBrowser {{"
@@ -623,36 +601,7 @@ class AgentStepCard(QFrame):
         self._apply_badge_style()
 
     def _apply_badge_style(self) -> None:
-        """Update status badge color based on current status and theme."""
-        st = self._status
-        if self.dark:
-            if st == CardStatus.RUNNING:
-                bg, fg, border = "#1E3A8A", "#93C5FD", "#3B82F6"
-            elif st == CardStatus.COMPLETED:
-                bg, fg, border = "#064E3B", "#6EE7B7", "#10B981"
-            elif st == CardStatus.FAILED:
-                bg, fg, border = "#7F1D1D", "#FCA5A5", "#EF4444"
-            elif st == CardStatus.CANCELLED:
-                bg, fg, border = "#78350F", "#FCD34D", "#F59E0B"
-            elif st == CardStatus.SKIPPED:
-                bg, fg, border = "#334155", "#CBD5E1", "#64748B"
-            else:  # PENDING
-                bg, fg, border = "#1E293B", "#94A3B8", "#475569"
-        else:
-            if st == CardStatus.RUNNING:
-                bg, fg, border = "#DBEAFE", "#1D4ED8", "#93C5FD"
-            elif st == CardStatus.COMPLETED:
-                bg, fg, border = "#DCFCE7", "#15803D", "#86EFAC"
-            elif st == CardStatus.FAILED:
-                bg, fg, border = "#FEE2E2", "#B91C1C", "#FCA5A5"
-            elif st == CardStatus.CANCELLED:
-                bg, fg, border = "#FEF3C7", "#B45309", "#FCD34D"
-            elif st == CardStatus.SKIPPED:
-                bg, fg, border = "#F1F5F9", "#475569", "#CBD5E1"
-            else:  # PENDING
-                bg, fg, border = "#F8FAFC", "#64748B", "#E2E8F0"
-
-        self.status_badge.setStyleSheet(
-            f"background-color: {bg}; color: {fg}; border: 1px solid {border};"
-            f"font-weight: bold; font-size: 11px; padding: 2px 10px; border-radius: 10px;"
-        )
+        """Update status badge color based on current status and centralized theme."""
+        st_name = self._status.value if hasattr(self._status, "value") else str(self._status)
+        style = badge_style(st_name, dark=self.dark)
+        self.status_badge.setStyleSheet(style)

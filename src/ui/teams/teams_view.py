@@ -38,6 +38,7 @@ from src.ui.teams.agent_card import AgentStepCard, CardStatus
 from src.ui.teams.config_panel import TeamConfigPanel
 from src.ui.teams.deliverable_panel import FinalDeliverablePanel
 from src.ui.teams.worker import TeamExecutionWorker, safely_anchor_worker
+from src.ui.theme import get_theme, badge_style, RAVEN, CHARCOAL, WHITE, GRAY
 from src.workflow.models import StepExecutionRecord, WorkflowStatus
 
 logger = logging.getLogger("RelayAI.AITeamsView")
@@ -219,6 +220,35 @@ class AITeamsView(QWidget):
         self.revision_banner.setVisible(False)
         right_layout.addWidget(self.revision_banner)
 
+        # Compact Horizontal Progress Stepper Overview
+        self.stepper_frame = QFrame(self.right_pane)
+        self.stepper_frame.setObjectName("TeamStepperFrame")
+        stepper_layout = QHBoxLayout(self.stepper_frame)
+        stepper_layout.setContentsMargins(8, 4, 8, 4)
+        stepper_layout.setSpacing(6)
+
+        self._stepper_nodes: Dict[AgentRole, QLabel] = {}
+        ordered_stepper_roles = [
+            (AgentRole.PLANNER, "1. Planner"),
+            (AgentRole.RESEARCHER, "2. Researcher"),
+            (AgentRole.CREATOR, "3. Creator"),
+            (AgentRole.CRITIC, "4. Critic"),
+            (AgentRole.FINALIZER, "5. Finalizer"),
+        ]
+        for idx, (role, label_text) in enumerate(ordered_stepper_roles):
+            node_lbl = QLabel(label_text, self.stepper_frame)
+            node_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._stepper_nodes[role] = node_lbl
+            stepper_layout.addWidget(node_lbl, 1)
+
+            if idx < len(ordered_stepper_roles) - 1:
+                arrow_lbl = QLabel("→", self.stepper_frame)
+                arrow_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                arrow_lbl.setStyleSheet("color: #757575; font-size: 11px;")
+                stepper_layout.addWidget(arrow_lbl, 0)
+
+        right_layout.addWidget(self.stepper_frame)
+
         # Agent Execution Timeline (Scroll area of AgentStepCards)
         self.timeline_scroll = QScrollArea(self.right_pane)
         self.timeline_scroll.setWidgetResizable(True)
@@ -258,14 +288,14 @@ class AITeamsView(QWidget):
         task_prompt = self.task_input.toPlainText().strip()
         if not task_prompt:
             self.status_label.setText("Error: Task objective cannot be empty.")
-            self.status_label.setStyleSheet("color: #EF4444; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("error", self.dark))
             return
 
         # 1. Configuration Validation
         config_err = self.config_panel.validate_config()
         if config_err:
             self.status_label.setText(f"Config Error: {config_err}")
-            self.status_label.setStyleSheet("color: #EF4444; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("error", self.dark))
             self.deliverable_panel.set_error(f"Configuration validation failed: {config_err}")
             return
 
@@ -279,7 +309,7 @@ class AITeamsView(QWidget):
             err_msg = str(exc)
             logger.error("Preflight team readiness check failed: %s", err_msg)
             self.status_label.setText(f"Preflight Failed: {err_msg}")
-            self.status_label.setStyleSheet("color: #EF4444; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("error", self.dark))
             self.deliverable_panel.set_error(f"Provider readiness validation failed: {err_msg}")
             return
 
@@ -293,10 +323,11 @@ class AITeamsView(QWidget):
         self.cancel_btn.setEnabled(True)
         self.config_panel.setEnabled(False)
         self.status_label.setText(f"Running ({run_id})...")
-        self.status_label.setStyleSheet("color: #3B82F6; font-weight: bold;")
+        self.status_label.setStyleSheet(badge_style("running", self.dark))
         self.summary_metrics_label.setText("")
         self.revision_banner.setVisible(False)
         self.deliverable_panel.set_loading("AI Team is executing specialized agent turns...")
+        self._reset_stepper()
 
         # Initialize Agent Step Cards for all enabled roles
         self._initialize_step_cards(team_config)
@@ -346,7 +377,7 @@ class AITeamsView(QWidget):
             self.cancel_btn.setEnabled(False)
             self.config_panel.setEnabled(True)
             self.status_label.setText(f"Launch Error: {exc}")
-            self.status_label.setStyleSheet("color: #EF4444; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("error", self.dark))
             self.deliverable_panel.set_error(f"Failed to launch team execution worker: {exc}")
 
     def cancel_team(self) -> None:
@@ -356,7 +387,7 @@ class AITeamsView(QWidget):
 
         self.cancel_btn.setEnabled(False)
         self.status_label.setText("Canceling...")
-        self.status_label.setStyleSheet("color: #F59E0B; font-weight: bold;")
+        self.status_label.setStyleSheet(badge_style("warning", self.dark))
 
         try:
             self._active_worker.cancel()
@@ -376,8 +407,10 @@ class AITeamsView(QWidget):
         if card:
             card.update_from_snapshot(snapshot)
 
+        self._update_stepper_node(snapshot.role, "running")
         role_name = snapshot.role.value.capitalize()
         self.status_label.setText(f"Active: {role_name} Agent running...")
+        self.status_label.setStyleSheet(badge_style("running", self.dark))
 
     def _on_step_completed(self, snapshot: TeamExecutionSnapshot, run_id: str) -> None:
         """Handle agent step completion telemetry."""
@@ -387,6 +420,8 @@ class AITeamsView(QWidget):
         card = self._step_cards.get(snapshot.role)
         if card:
             card.update_from_snapshot(snapshot)
+
+        self._update_stepper_node(snapshot.role, "completed")
 
     def _on_revision_requested(
         self,
@@ -405,6 +440,7 @@ class AITeamsView(QWidget):
         )
         self.revision_banner_text.setText(f"Reason: {reason}\nFeedback: {feedback}")
         self.revision_banner.setVisible(True)
+        self._update_stepper_node(AgentRole.CRITIC, "revision")
 
     def _on_team_completed(self, result: TeamExecutionResult, run_id: str) -> None:
         """Terminal result handler updating deliverable, step cards, and history."""
@@ -426,13 +462,14 @@ class AITeamsView(QWidget):
         st_text = result.status.value.capitalize()
         if result.is_success:
             self.status_label.setText(f"Completed ({st_text})")
-            self.status_label.setStyleSheet("color: #10B981; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("completed", self.dark))
+            self._update_stepper_node(AgentRole.FINALIZER, "completed")
         elif result.status == WorkflowStatus.CANCELLED:
             self.status_label.setText("Cancelled")
-            self.status_label.setStyleSheet("color: #F59E0B; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("warning", self.dark))
         else:
             self.status_label.setText(f"Failed ({st_text})")
-            self.status_label.setStyleSheet("color: #EF4444; font-weight: bold;")
+            self.status_label.setStyleSheet(badge_style("error", self.dark))
 
         tok_str = f"{result.total_tokens:,} tok" if result.total_tokens is not None else "-- tok"
         self.summary_metrics_label.setText(
@@ -453,7 +490,7 @@ class AITeamsView(QWidget):
         self.config_panel.setEnabled(True)
 
         self.status_label.setText(f"Execution Error")
-        self.status_label.setStyleSheet("color: #EF4444; font-weight: bold;")
+        self.status_label.setStyleSheet(badge_style("error", self.dark))
         self.deliverable_panel.set_error(error_message)
 
     def _on_worker_cancelled(self, run_id: str) -> None:
@@ -461,7 +498,7 @@ class AITeamsView(QWidget):
         if run_id != self._current_run_id:
             return
         self.status_label.setText("Cancelled")
-        self.status_label.setStyleSheet("color: #F59E0B; font-weight: bold;")
+        self.status_label.setStyleSheet(badge_style("warning", self.dark))
 
     # -----------------------------------------------------------------
     # Step Card Timeline Setup & Updates
@@ -603,121 +640,119 @@ class AITeamsView(QWidget):
             card.set_dark_theme(dark)
 
     def _apply_theme(self) -> None:
-        if self.dark:
-            bg_color = "#0D1117"
-            panel_bg = "#161B22"
-            border_color = "#30363D"
-            text_pri = "#F0F6FC"
-            text_sec = "#8B949E"
-            btn_run_bg = "#238636"
-            btn_run_hover = "#2EA043"
-            btn_run_text = "#FFFFFF"
-            btn_cancel_bg = "#851A1D"
-            btn_cancel_hover = "#A42327"
-            btn_cancel_text = "#FCA5A5"
-            input_bg = "#0D1117"
-            list_bg = "#0D1117"
-            rev_banner_bg = "#271B0B"
-            rev_banner_border = "#92400E"
-        else:
-            bg_color = "#F8FAFC"
-            panel_bg = "#FFFFFF"
-            border_color = "#E2E8F0"
-            text_pri = "#0F172A"
-            text_sec = "#475569"
-            btn_run_bg = "#16A34A"
-            btn_run_hover = "#15803D"
-            btn_run_text = "#FFFFFF"
-            btn_cancel_bg = "#FEE2E2"
-            btn_cancel_hover = "#FCA5A5"
-            btn_cancel_text = "#B91C1C"
-            input_bg = "#FFFFFF"
-            list_bg = "#FFFFFF"
-            rev_banner_bg = "#FEF3C7"
-            rev_banner_border = "#F59E0B"
+        t = get_theme(self.dark)
 
-        self.title_label.setStyleSheet(f"color: {text_pri}; font-size: 18px; font-weight: bold;")
-        self.subtitle_label.setStyleSheet(f"color: {text_sec}; font-size: 12px;")
+        self.title_label.setStyleSheet(f"color: {t.text_primary}; font-size: 18px; font-weight: bold;")
+        self.subtitle_label.setStyleSheet(f"color: {t.text_secondary}; font-size: 12px;")
 
         self.task_input.setStyleSheet(
             f"QPlainTextEdit {{"
-            f"  background-color: {input_bg};"
-            f"  color: {text_pri};"
-            f"  border: 1px solid {border_color};"
+            f"  background-color: {t.bg_sunken};"
+            f"  color: {t.text_primary};"
+            f"  border: 1px solid {t.border_strong};"
             f"  border-radius: 6px;"
             f"  padding: 6px;"
             f"  font-size: 12px;"
+            f"}}"
+            f"QPlainTextEdit:focus {{"
+            f"  border: 1px solid {t.border_focus};"
             f"}}"
         )
 
         self.run_btn.setStyleSheet(
             f"QPushButton {{"
-            f"  background-color: {btn_run_bg};"
-            f"  color: {btn_run_text};"
-            f"  border: none;"
+            f"  background-color: {t.btn_primary_bg};"
+            f"  color: {t.btn_primary_fg};"
+            f"  border: 1px solid {t.btn_primary_bg};"
             f"  border-radius: 6px;"
             f"  padding: 6px 16px;"
             f"  font-weight: bold;"
             f"}}"
             f"QPushButton:hover {{"
-            f"  background-color: {btn_run_hover};"
+            f"  background-color: {t.btn_primary_hover};"
             f"}}"
             f"QPushButton:disabled {{"
             f"  opacity: 0.5;"
-            f"  background-color: #64748B;"
+            f"  background-color: {t.bg_card};"
+            f"  color: {t.text_muted};"
             f"}}"
         )
 
         self.cancel_btn.setStyleSheet(
             f"QPushButton {{"
-            f"  background-color: {btn_cancel_bg};"
-            f"  color: {btn_cancel_text};"
-            f"  border: 1px solid {border_color};"
+            f"  background-color: {t.btn_secondary_bg};"
+            f"  color: {t.btn_secondary_fg};"
+            f"  border: 1px solid {t.border_strong};"
             f"  border-radius: 6px;"
             f"  padding: 6px 14px;"
             f"  font-weight: 600;"
             f"}}"
             f"QPushButton:hover {{"
-            f"  background-color: {btn_cancel_hover};"
+            f"  background-color: {t.btn_secondary_hover};"
+            f"  border-color: {t.border_focus};"
             f"}}"
             f"QPushButton:disabled {{"
             f"  opacity: 0.5;"
+            f"  color: {t.text_muted};"
             f"}}"
         )
 
+        self.stepper_frame.setStyleSheet(
+            f"QFrame#TeamStepperFrame {{"
+            f"  background-color: {t.bg_sunken};"
+            f"  border: 1px solid {t.border_subtle};"
+            f"  border-radius: 6px;"
+            f"}}"
+        )
+        self._reset_stepper()
+
         self.history_group.setStyleSheet(
             f"QFrame {{"
-            f"  background-color: {panel_bg};"
-            f"  border: 1px solid {border_color};"
+            f"  background-color: {t.bg_card};"
+            f"  border: 1px solid {t.border_strong};"
             f"  border-radius: 6px;"
             f"}}"
         )
 
         self.history_list.setStyleSheet(
             f"QListWidget {{"
-            f"  background-color: {list_bg};"
-            f"  color: {text_pri};"
-            f"  border: 1px solid {border_color};"
+            f"  background-color: {t.bg_sunken};"
+            f"  color: {t.text_primary};"
+            f"  border: 1px solid {t.border_subtle};"
             f"  border-radius: 4px;"
             f"  font-size: 11px;"
             f"}}"
             f"QListWidget::item {{"
             f"  padding: 4px;"
-            f"  border-bottom: 1px solid {border_color};"
+            f"  border-bottom: 1px solid {t.border_subtle};"
             f"}}"
             f"QListWidget::item:selected {{"
-            f"  background-color: #2563EB;"
-            f"  color: #FFFFFF;"
+            f"  background-color: {t.bg_card};"
+            f"  color: {t.text_primary};"
+            f"  border-left: 2px solid {t.border_focus};"
             f"}}"
         )
 
         self.revision_banner.setStyleSheet(
             f"QFrame {{"
-            f"  background-color: {rev_banner_bg};"
-            f"  border: 1px solid {rev_banner_border};"
+            f"  background-color: {t.bg_elevated};"
+            f"  border: 1px dashed {t.border_focus};"
             f"  border-radius: 6px;"
             f"}}"
         )
+        self.revision_banner_title.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {t.text_primary};")
+        self.revision_banner_text.setStyleSheet(f"font-size: 12px; color: {t.text_secondary};")
+
+    def _reset_stepper(self) -> None:
+        """Reset all nodes in the horizontal stepper to pending."""
+        for role, lbl in self._stepper_nodes.items():
+            lbl.setStyleSheet(badge_style("pending", self.dark))
+
+    def _update_stepper_node(self, role: AgentRole, status: str) -> None:
+        """Update a specific role's badge style in the compact horizontal stepper."""
+        lbl = self._stepper_nodes.get(role)
+        if lbl:
+            lbl.setStyleSheet(badge_style(status, self.dark))
 
     def closeEvent(self, event) -> None:
         """Safely anchor running worker on view close to avoid native destruction crashes."""

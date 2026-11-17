@@ -8,7 +8,9 @@ from src.providers.exceptions import (
     ProviderAuthenticationError,
     ProviderConnectionError,
     ProviderError,
+    ProviderQuotaError,
     ProviderRateLimitError,
+    ProviderTimeoutError,
 )
 from src.providers.openai import OpenAIProvider, DEFAULT_OPENAI_MODEL
 
@@ -121,9 +123,9 @@ class TestOpenAIProvider(unittest.TestCase):
     def test_error_mapping_quota_exhaustion(self):
         exc = Exception("You have no credits remaining. Add credits to continue using the API.")
         setattr(exc, "status_code", 429)
-        with self.assertRaises(ProviderRateLimitError) as ctx:
+        with self.assertRaises(ProviderQuotaError) as ctx:
             self.provider._handle_exception(exc, DEFAULT_OPENAI_MODEL)
-        self.assertIn("credits remaining", str(ctx.exception))
+        self.assertIn("quota", str(ctx.exception))
 
     def test_error_mapping_model_not_found(self):
         exc = Exception("model_not_found: The model gpt-old does not exist")
@@ -133,7 +135,7 @@ class TestOpenAIProvider(unittest.TestCase):
 
     def test_error_mapping_connection_timeout(self):
         exc = Exception("APITimeoutError: Request timed out")
-        with self.assertRaises(ProviderConnectionError):
+        with self.assertRaises(ProviderTimeoutError):
             self.provider._handle_exception(exc, DEFAULT_OPENAI_MODEL)
 
     def test_live_key_connection_if_configured(self):
@@ -146,4 +148,3 @@ class TestOpenAIProvider(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

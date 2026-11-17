@@ -11,6 +11,7 @@ from src.context.retrieval.hybrid import (
     HybridConfig,
     HybridRetriever,
     HybridSearchResult,
+    format_rag_context,
 )
 from src.context.retrieval.rrf import (
     FusedResult,
@@ -55,6 +56,7 @@ __all__ = [
     "HybridRetriever",
     "HybridConfig",
     "HybridSearchResult",
+    "format_rag_context",
     "MODE_HYBRID",
     "MODE_DENSE_ONLY",
     "MODE_SPARSE_ONLY",

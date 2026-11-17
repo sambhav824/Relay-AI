@@ -171,6 +171,10 @@ class AgentBase(ABC):
                 metadata.prompt_tokens = resp_meta.prompt_tokens
                 metadata.completion_tokens = resp_meta.completion_tokens
                 metadata.total_tokens = resp_meta.total_tokens
+                if hasattr(resp_meta, "provider_id") and resp_meta.provider_id:
+                    metadata.provider_id = resp_meta.provider_id
+                if hasattr(resp_meta, "model") and resp_meta.model:
+                    metadata.model_id = resp_meta.model
                 if hasattr(resp_meta, "critic_review"):
                     metadata.critic_review = getattr(resp_meta, "critic_review")
                 if hasattr(resp_meta, "extra") and resp_meta.extra:
@@ -290,11 +294,14 @@ class AgentBase(ABC):
                     )
 
                 text = chunk.delta if hasattr(chunk, "delta") else str(chunk)
+                chunk_meta = getattr(chunk, "metadata", None)
+                if chunk_meta and getattr(chunk_meta, "extra", {}).get("automatic_fallback_from"):
+                    collected_chunks.clear()
                 if text:
                     collected_chunks.append(text)
 
-                if hasattr(chunk, "metadata") and chunk.metadata:
-                    final_meta = chunk.metadata
+                if chunk_meta:
+                    final_meta = chunk_meta
 
             return "".join(collected_chunks).strip(), final_meta
 

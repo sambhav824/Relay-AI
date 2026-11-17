@@ -112,6 +112,35 @@ class TestDocumentManager(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 other.delete(first.document_id)
 
+    def test_list_documents_filtering_and_ownership(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p1 = Path(tmp) / "doc1.txt"
+            p1.write_text("Doc 1 content for user 1.", encoding="utf-8")
+            p2 = Path(tmp) / "doc2.txt"
+            p2.write_text("Doc 2 content for user 2.", encoding="utf-8")
+
+            mgr1 = DocumentManager(self.conn, user_id="user-1")
+            mgr2 = DocumentManager(self.conn, user_id="user-2")
+
+            mgr1.ingest(p1, project_id="p-alpha")
+            mgr2.ingest(p2, project_id="p-alpha")
+
+            # user-1 only lists user-1 docs
+            docs_user1 = mgr1.list_documents()
+            self.assertEqual(len(docs_user1), 1)
+            self.assertEqual(docs_user1[0]["file_name"], "doc1.txt")
+            self.assertEqual(docs_user1[0]["project_id"], "p-alpha")
+            self.assertGreater(docs_user1[0]["chunk_count"], 0)
+
+            # user-2 only lists user-2 docs
+            docs_user2 = mgr2.list_documents()
+            self.assertEqual(len(docs_user2), 1)
+            self.assertEqual(docs_user2[0]["file_name"], "doc2.txt")
+
+            # Project filtering
+            self.assertEqual(len(mgr1.list_documents(project_id="p-alpha")), 1)
+            self.assertEqual(len(mgr1.list_documents(project_id="p-nonexistent")), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

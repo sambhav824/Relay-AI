@@ -36,18 +36,22 @@ class DummyProvider(AIProvider):
 class TestProviderArchitecture(unittest.TestCase):
     def test_provider_manager_registration_and_active(self):
         mgr = ProviderManager()
-        # Default Ollama, Gemini, Groq, and OpenAI are registered
+        # Default Ollama, Gemini, Groq, OpenAI, and OpenRouter are registered
         self.assertIsNotNone(mgr.get_provider("ollama"))
         self.assertIsNotNone(mgr.get_provider("gemini"))
         self.assertIsNotNone(mgr.get_provider("groq"))
         self.assertIsNotNone(mgr.get_provider("openai"))
-        self.assertEqual(mgr.get_active_provider().provider_id, "ollama")
+        self.assertIsNotNone(mgr.get_provider("openrouter"))
+        expected_default = (
+            "openai" if mgr.get_provider("openai").has_credentials(mgr.credential_store) else "ollama"
+        )
+        self.assertEqual(mgr.get_active_provider().provider_id, expected_default)
 
         # Register DummyProvider
         dummy = DummyProvider()
         mgr.register_provider(dummy)
         self.assertEqual(mgr.get_provider("dummy"), dummy)
-        self.assertEqual(len(mgr.list_providers()), 5)
+        self.assertEqual(len(mgr.list_providers()), 6)
 
         # Switch active provider
         self.assertTrue(mgr.set_active_provider("dummy"))

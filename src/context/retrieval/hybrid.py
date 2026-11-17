@@ -274,3 +274,61 @@ class HybridRetriever:
             )
 
         return results
+
+
+def format_rag_context(chunks: Sequence[Any], max_tokens: int = 2000) -> str:
+    """Format retrieved document chunks into a structured prompt context block with source attribution.
+
+    Args:
+        chunks: Sequence of HybridSearchResult, VectorMatch, SparseMatch or dict items.
+        max_tokens: Approximate character/token limit to avoid exceeding context window.
+
+    Returns:
+        Structured context string or empty string if no chunks are provided.
+    """
+    if not chunks:
+        return ""
+
+    lines = ["--- Context from Indexed Documents ---"]
+    current_chars = 0
+    max_chars = max_tokens * 4
+
+    for i, c in enumerate(chunks, 1):
+        if isinstance(c, dict):
+            content = str(c.get("content", "")).strip()
+            metadata = dict(c.get("metadata", {}) or {})
+            doc_id = str(c.get("document_id", "Document"))
+        else:
+            content = str(getattr(c, "content", "")).strip()
+            metadata = dict(getattr(c, "metadata", {}) or {})
+            doc_id = str(getattr(c, "document_id", "Document"))
+
+        if not content:
+            continue
+
+        source_file = metadata.get("source_file") or metadata.get("title") or doc_id
+        page_num = metadata.get("page_number") or metadata.get("page")
+
+        header = f"Source {i}: {source_file}"
+        if page_num is not None:
+            header += f" (Page {page_num})"
+
+        chunk_block = f"[{header}]\n{content}"
+
+        if current_chars + len(chunk_block) > max_chars:
+            break
+
+        lines.append(chunk_block)
+        current_chars += len(chunk_block)
+
+    if len(lines) <= 1:
+        return ""
+
+    lines.append("--- End of Context ---")
+    lines.append(
+        "Instructions: Use the above indexed document context to inform your answer. "
+        "Cite the relevant source documents (e.g. [Source 1]) when referencing facts. "
+        "If the context does not contain the answer, answer based on your general knowledge "
+        "and explicitly state that the reference documents did not contain the information."
+    )
+    return "\n\n".join(lines)

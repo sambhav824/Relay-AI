@@ -22,7 +22,27 @@ class ProviderAuthenticationError(ProviderError):
 
 
 class ProviderRateLimitError(ProviderError):
-    """Raised when provider rate limits / quotas are exceeded."""
+    """Raised for temporary provider request-rate limits."""
+    pass
+
+
+class ProviderQuotaError(ProviderError):
+    """Raised when provider usage quota or credits are exhausted."""
+    pass
+
+
+class ProviderBillingError(ProviderError):
+    """Raised when provider billing or spending limits block usage."""
+    pass
+
+
+class ProviderPermissionError(ProviderError):
+    """Raised when the account is authenticated but lacks permission."""
+    pass
+
+
+class ProviderServerError(ProviderError):
+    """Raised when a provider returns a server-side error."""
     pass
 
 
@@ -39,5 +59,4 @@ class ProviderTimeoutError(ProviderError):
 # Backward-compatibility aliases
 ProviderAuthError = ProviderAuthenticationError
 ProviderNotFoundError = ModelNotFoundError
-
 

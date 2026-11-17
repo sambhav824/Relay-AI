@@ -32,6 +32,7 @@ from src.providers.models import ModelInfo
 from src.teams.factory import create_default_team_config
 from src.teams.models import TeamConfig, TeamMemberConfig
 from src.ui.teams.worker import ModelDiscoveryWorker, safely_anchor_worker
+from src.ui.theme import get_theme, RAVEN, CHARCOAL, WHITE, GRAY
 
 logger = logging.getLogger("RelayAI.TeamConfigPanel")
 
@@ -525,28 +526,16 @@ class TeamConfigPanel(QWidget):
         self._apply_theme()
 
     def _apply_theme(self) -> None:
-        if self.dark:
-            gb_border = "#2A3140"
-            gb_title = "#93C5FD"
-            panel_bg = "#161B22"
-            text_pri = "#F0F6FC"
-            combo_bg = "#1F2937"
-            combo_border = "#374151"
-            btn_bg = "#21262D"
-            btn_border = "#363B42"
-            btn_text = "#C9D1D9"
-            btn_hover = "#30363D"
-        else:
-            gb_border = "#CBD5E1"
-            gb_title = "#1E40AF"
-            panel_bg = "#FFFFFF"
-            text_pri = "#0F172A"
-            combo_bg = "#FFFFFF"
-            combo_border = "#CBD5E1"
-            btn_bg = "#F8FAFC"
-            btn_border = "#CBD5E1"
-            btn_text = "#334155"
-            btn_hover = "#E2E8F0"
+        t = get_theme(self.dark)
+        gb_border = t.border_strong
+        gb_title = t.text_primary
+        combo_bg = t.bg_sunken
+        combo_border = t.border_strong
+        text_pri = t.text_primary
+        btn_bg = t.btn_secondary_bg
+        btn_border = t.border_strong
+        btn_text = t.btn_secondary_fg
+        btn_hover = t.btn_secondary_hover
 
         style = f"""
         QGroupBox {{
@@ -582,6 +571,7 @@ class TeamConfigPanel(QWidget):
         }}
         QPushButton:hover {{
             background-color: {btn_hover};
+            border-color: {t.border_focus};
         }}
         """
         self.setStyleSheet(style)

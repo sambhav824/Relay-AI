@@ -62,13 +62,28 @@ class GroqProvider(AIProvider):
 
     def _prepare_messages(
         self, messages: Union[str, List[Union[Message, Dict[str, Any]]]]
-    ) -> List[Dict[str, str]]:
-        """Convert standard Message objects to OpenAI/Groq compatible message dicts."""
+    ) -> List[Dict[str, Any]]:
+        """Convert standard Message objects to OpenAI/Groq compatible message dicts (with vision support)."""
         if isinstance(messages, str):
             return [{"role": "user", "content": messages}]
 
+        from src.core.images import encode_image_to_base64_data_uri
+
         normalized = self.normalize_messages(messages)
-        return [{"role": m.role.value, "content": m.content} for m in normalized]
+        formatted = []
+        for m in normalized:
+            imgs = getattr(m, "images", None) or (m.get("images") if isinstance(m, dict) else None)
+            role_val = m.role.value if hasattr(m, "role") else m.get("role", "user")
+            if imgs:
+                content_parts = [{"type": "text", "text": m.content}]
+                for img_path in imgs:
+                    uri = encode_image_to_base64_data_uri(img_path)
+                    if uri:
+                        content_parts.append({"type": "image_url", "image_url": {"url": uri}})
+                formatted.append({"role": role_val, "content": content_parts})
+            else:
+                formatted.append({"role": role_val, "content": m.content})
+        return formatted
 
     def stream(
         self,

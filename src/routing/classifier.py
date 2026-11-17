@@ -79,6 +79,7 @@ class TaskClassifier:
         self,
         prompt: str,
         history: Optional[List[Message]] = None,
+        has_images: bool = False,
     ) -> ClassificationResult:
         """Classify user request into a TaskType with deterministic confidence scoring."""
         text = (prompt or "").strip()
@@ -90,10 +91,16 @@ class TaskClassifier:
             TaskType.DOCUMENT_ANALYSIS: 0.0,
             TaskType.CREATIVE: 0.0,
             TaskType.COMPLEX_REASONING: 0.0,
+            TaskType.VISION: 0.0,
             TaskType.GENERAL: 0.1,  # baseline floor for general
         }
 
         lower_text = text.lower()
+
+        # 0. Vision / Image Analysis
+        if has_images or "[attached image" in lower_text or any(cue in lower_text for cue in ("rate this image", "look at this photo", "rate this photo", "in this picture", "in this photo")):
+            scores[TaskType.VISION] += 15.0
+            matched_cues.append("vision_attachment")
 
         # 1. Coding Analysis
         code_blocks = self._CODE_BLOCK_REGEX.findall(text)

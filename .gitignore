@@ -7,3 +7,9 @@ __pycache__/
 dist/
 build/
 *.spec
+web/node_modules/
+web/.next/
+web/out/
+*.log
+err.txt
+out.txt

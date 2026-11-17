@@ -65,6 +65,7 @@ class GeminiProvider(AIProvider):
     ):
         """Convert standard Message objects to Gemini Contents and System Instruction."""
         from google.genai import types
+        from src.core.images import read_image_bytes_and_mime
 
         normalized = self.normalize_messages(messages)
         contents = []
@@ -74,10 +75,17 @@ class GeminiProvider(AIProvider):
             if msg.role == MessageRole.SYSTEM:
                 system_instruction = msg.content
             elif msg.role == MessageRole.USER:
+                parts = [types.Part.from_text(text=msg.content)]
+                imgs = getattr(msg, "images", None) or (msg.get("images") if isinstance(msg, dict) else None)
+                if imgs:
+                    for img_path in imgs:
+                        img_bytes, mime = read_image_bytes_and_mime(img_path)
+                        if img_bytes:
+                            parts.append(types.Part.from_bytes(data=img_bytes, mime_type=mime))
                 contents.append(
                     types.Content(
                         role="user",
-                        parts=[types.Part.from_text(text=msg.content)],
+                        parts=parts,
                     )
                 )
             elif msg.role == MessageRole.ASSISTANT:

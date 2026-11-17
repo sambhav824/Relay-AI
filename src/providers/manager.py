@@ -8,6 +8,9 @@ from src.providers.ollama import OllamaProvider
 from src.providers.gemini import GeminiProvider
 from src.providers.groq import GroqProvider
 from src.providers.openai import OpenAIProvider
+from src.providers.openrouter import OpenRouterProvider
+from src.providers.mock import MockProvider
+from src.providers.cost_protection import UsageLimits
 
 logger = logging.getLogger("RelayAI.ProviderManager")
 
@@ -28,6 +31,13 @@ class ProviderManager:
         self.register_provider(GroqProvider(credential_store=self.credential_store))
         # Register OpenAI cloud provider
         self.register_provider(OpenAIProvider(credential_store=self.credential_store))
+        # Register OpenRouter cloud provider
+        self.register_provider(OpenRouterProvider(credential_store=self.credential_store))
+        openai = self.get_provider("openai")
+        if isinstance(openai, OpenAIProvider):
+            openai.configure_fallback(self.get_provider("ollama"))
+            if openai.has_credentials(self.credential_store):
+                self._active_provider_id = "openai"
 
     def register_provider(self, provider: AIProvider) -> None:
         """Register an AI provider instance."""
@@ -81,6 +91,18 @@ class ProviderManager:
         if not provider:
             return False
         return provider.validate_connection()
+
+    def configure_usage_protection(self, limits: UsageLimits, user_id_provider=None) -> None:
+        """Apply usage settings to the existing OpenAI provider implementation."""
+        provider = self.get_provider("openai")
+        if isinstance(provider, OpenAIProvider):
+            provider.configure_usage(limits, user_id_provider)
+
+    def set_automatic_fallback(self, enabled: bool) -> None:
+        """Enable or disable OpenAI-to-Ollama fallback without restarting the app."""
+        provider = self.get_provider("openai")
+        if isinstance(provider, OpenAIProvider):
+            provider.configure_fallback(self.get_provider("ollama"), enabled)
 
 
 # Global default manager singleton

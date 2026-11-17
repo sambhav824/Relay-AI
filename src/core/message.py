@@ -18,6 +18,7 @@ class Message:
         content: str,
         timestamp: Optional[float] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        images: Optional[List[str]] = None,
     ):
         if isinstance(role, str):
             try:
@@ -30,13 +31,17 @@ class Message:
         self.content = str(content) if content is not None else ""
         self.timestamp = timestamp if timestamp is not None else time.time()
         self.metadata = metadata or {}
+        self.images = list(images) if images else []
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to standard dictionary payload."""
-        return {
+        data = {
             "role": self.role.value,
             "content": self.content,
         }
+        if self.images:
+            data["images"] = list(self.images)
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
@@ -46,6 +51,7 @@ class Message:
             content=data.get("content", ""),
             timestamp=data.get("timestamp"),
             metadata=data.get("metadata"),
+            images=data.get("images"),
         )
 
     # Provide dictionary-like access (e.g. msg["role"], msg["content"]) for backwards compatibility
@@ -58,6 +64,8 @@ class Message:
             return self.timestamp
         elif item == "metadata":
             return self.metadata
+        elif item == "images":
+            return self.images
         raise KeyError(f"Invalid Message key: {item}")
 
     def __setitem__(self, key: str, value: Any) -> None:
@@ -69,6 +77,8 @@ class Message:
             self.timestamp = float(value)
         elif key == "metadata":
             self.metadata = dict(value)
+        elif key == "images":
+            self.images = list(value) if value else []
         else:
             raise KeyError(f"Invalid Message key: {key}")
 

@@ -12,6 +12,7 @@ class TaskType(str, Enum):
     SUMMARIZATION = "summarization"
     DOCUMENT_ANALYSIS = "document_analysis"
     COMPLEX_REASONING = "complex_reasoning"
+    VISION = "vision"
 
 
 class RoutingStrategy(str, Enum):
@@ -63,6 +64,7 @@ class ModelProfile:
     heuristic_alignment: Dict[TaskType, float] = field(default_factory=dict)  # Heuristic scale 1.0 - 10.0
     supports_system_prompt: bool = True
     supports_streaming: bool = True
+    supports_vision: bool = False
     is_deprecated: bool = False
     is_available: bool = True
     description: str = ""

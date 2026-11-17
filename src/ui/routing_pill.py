@@ -4,6 +4,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel
 
 from src.routing.types import RoutingDecision
+from src.ui.theme import get_theme, badge_style, RAVEN, CHARCOAL, WHITE, GRAY
 
 
 class RoutingStatusPill(QFrame):
@@ -99,51 +100,33 @@ class RoutingStatusPill(QFrame):
         self._set_pill_style("error")
 
     def _set_pill_style(self, state: str) -> None:
-        if self.dark:
-            if state == "idle":
-                bg = "#1B202B"
-                border = "#2B3344"
-                text_color = "#9AA3B2"
-                icon_color = "#818CF8"
-            elif state == "active":
-                bg = "#1C2438"
-                border = "#3B4868"
-                text_color = "#E0E7FF"
-                icon_color = "#6658E8"
-            elif state == "warning":
-                bg = "#2D2214"
-                border = "#5C4119"
-                text_color = "#FDE68A"
-                icon_color = "#F59E0B"
-            else:  # error
-                bg = "#2D1517"
-                border = "#631E21"
-                text_color = "#FCA5A5"
-                icon_color = "#EF4444"
-        else:
-            if state == "idle":
-                bg = "#F3F4F6"
-                border = "#E5E7EB"
-                text_color = "#6B7280"
-                icon_color = "#4F46E5"
-            elif state == "active":
-                bg = "#EEF2FF"
-                border = "#C7D2FE"
-                text_color = "#3730A3"
-                icon_color = "#4F46E5"
-            elif state == "warning":
-                bg = "#FEF3C7"
-                border = "#FDE68A"
-                text_color = "#92400E"
-                icon_color = "#D97706"
-            else:  # error
-                bg = "#FEE2E2"
-                border = "#FECACA"
-                text_color = "#991B1B"
-                icon_color = "#DC2626"
+        t = get_theme(self.dark)
+        if state == "idle":
+            bg = t.bg_sunken
+            border = t.border_subtle
+            text_color = t.text_secondary
+            icon_color = t.text_muted
+        elif state == "active":
+            bg = t.bg_card
+            border = t.border_focus
+            text_color = t.text_primary
+            icon_color = t.text_primary
+        elif state == "warning":
+            bg = t.bg_elevated
+            border = t.border_focus
+            text_color = t.text_primary
+            icon_color = t.text_primary
+        else:  # error
+            bg = t.bg_sunken
+            border = t.border_focus
+            text_color = t.text_primary
+            icon_color = t.text_primary
+
+        border_width = "2px" if state in ("warning", "error") else "1px"
+        border_style = "dashed" if state == "warning" else "solid"
 
         self.setStyleSheet(
-            f"QFrame#RoutingStatusPill {{ background: {bg}; border: 1px solid {border}; border-radius: 8px; }}"
+            f"QFrame#RoutingStatusPill {{ background: {bg}; border: {border_width} {border_style} {border}; border-radius: 6px; }}"
         )
         self.text_label.setStyleSheet(f"color: {text_color}; font-size: 12px; font-weight: 600;")
         self.icon_label.setStyleSheet(f"color: {icon_color}; font-size: 13px; font-weight: 700;")

@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from src.agents.models import AgentRole, AgentStatus
 from src.teams.models import TeamExecutionResult
+from src.ui.theme import get_theme, badge_style, RAVEN, CHARCOAL, WHITE, GRAY
 from src.workflow.models import WorkflowStatus
 
 
@@ -352,44 +353,25 @@ class FinalDeliverablePanel(QFrame):
             self.markdown_viewer.setHtml(html_content)
 
     def _apply_theme(self) -> None:
-        if self.dark:
-            panel_bg = "#161B22"
-            panel_border = "#30363D"
-            title_color = "#F0F6FC"
-            attr_bg = "#1F2937"
-            attr_color = "#60A5FA"
-            attr_border = "#3B82F6"
-            metrics_color = "#8B949E"
-            btn_bg = "#21262D"
-            btn_border = "#363B42"
-            btn_color = "#C9D1D9"
-            btn_hover = "#30363D"
-            viewer_bg = "#0D1117"
-            viewer_border = "#21262D"
-            empty_color = "#8B949E"
-            err_title_color = "#F85149"
-            err_box_bg = "#211516"
-            err_border = "#671B1D"
-            err_text = "#FF7B72"
-        else:
-            panel_bg = "#FFFFFF"
-            panel_border = "#E2E8F0"
-            title_color = "#0F172A"
-            attr_bg = "#EFF6FF"
-            attr_color = "#1D4ED8"
-            attr_border = "#93C5FD"
-            metrics_color = "#64748B"
-            btn_bg = "#F8FAFC"
-            btn_border = "#CBD5E1"
-            btn_color = "#334155"
-            btn_hover = "#E2E8F0"
-            viewer_bg = "#F8FAFC"
-            viewer_border = "#E2E8F0"
-            empty_color = "#94A3B8"
-            err_title_color = "#DC2626"
-            err_box_bg = "#FEF2F2"
-            err_border = "#FCA5A5"
-            err_text = "#991B1B"
+        t = get_theme(self.dark)
+        panel_bg = t.bg_card
+        panel_border = t.border_strong
+        title_color = t.text_primary
+        attr_bg = t.bg_elevated if self.dark else t.bg_sunken
+        attr_color = t.text_primary
+        attr_border = t.border_strong
+        metrics_color = t.text_muted
+        btn_bg = t.btn_secondary_bg
+        btn_border = t.border_strong
+        btn_color = t.btn_secondary_fg
+        btn_hover = t.btn_secondary_hover
+        viewer_bg = t.bg_sunken
+        viewer_border = t.border_subtle
+        empty_color = t.text_muted
+        err_title_color = t.text_primary
+        err_box_bg = t.bg_sunken
+        err_border = t.border_focus
+        err_text = t.text_primary
 
         self.setStyleSheet(
             f"FinalDeliverablePanel {{"
@@ -428,6 +410,7 @@ class FinalDeliverablePanel(QFrame):
             f"}}"
             f"QPushButton:hover {{"
             f"  background-color: {btn_hover};"
+            f"  border-color: {t.border_focus};"
             f"}}"
             f"QPushButton:disabled {{"
             f"  opacity: 0.5;"

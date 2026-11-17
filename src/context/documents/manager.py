@@ -219,3 +219,41 @@ class DocumentManager:
             self.sync_queue.stage(user_id=self.user_id, table_name="documents",
                                   record_id=document_id, operation="DELETE", payload={})
         return True
+
+    def list_documents(self, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List documents owned by the active user, optionally filtered by project."""
+        query = (
+            "SELECT id, project_id, file_name, file_path, file_size_bytes, "
+            "mime_type, page_count, status, created_at, metadata_json "
+            "FROM documents WHERE 1=1"
+        )
+        params: List[Any] = []
+        if project_id:
+            query += " AND project_id = ?"
+            params.append(project_id)
+        query += " ORDER BY created_at DESC"
+        cursor = self.conn.execute(query, params)
+        rows = cursor.fetchall()
+        docs: List[Dict[str, Any]] = []
+        for row in rows:
+            meta = json.loads(row[9] or "{}") if row[9] else {}
+            if meta.get("owner_user_id") and meta.get("owner_user_id") != self.user_id:
+                continue
+            chunk_row = self.conn.execute(
+                "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?", (row[0],)
+            ).fetchone()
+            chunk_count = chunk_row[0] if chunk_row else 0
+            docs.append({
+                "id": str(row[0]),
+                "project_id": str(row[1]) if row[1] else None,
+                "file_name": str(row[2] or ""),
+                "file_path": str(row[3] or ""),
+                "file_size_bytes": int(row[4] or 0),
+                "mime_type": str(row[5] or ""),
+                "page_count": int(row[6] or 1),
+                "status": str(row[7] or "INDEXED"),
+                "created_at": str(row[8] or ""),
+                "chunk_count": chunk_count,
+                "metadata": meta,
+            })
+        return docs

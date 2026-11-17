@@ -72,7 +72,9 @@ VERIFIED_MODEL_METADATA: Dict[Tuple[str, str], Dict] = {
             is_local=False,
         ),
         "latency_tier": "low",
+        "supports_vision": True,
         "heuristic_alignment": {
+            TaskType.VISION: 9.5,
             TaskType.DOCUMENT_ANALYSIS: 9.5,
             TaskType.SUMMARIZATION: 9.0,
             TaskType.GENERAL: 8.5,
@@ -94,7 +96,9 @@ VERIFIED_MODEL_METADATA: Dict[Tuple[str, str], Dict] = {
             is_local=False,
         ),
         "latency_tier": "low",
+        "supports_vision": True,
         "heuristic_alignment": {
+            TaskType.VISION: 9.8,
             TaskType.COMPLEX_REASONING: 9.0,
             TaskType.DOCUMENT_ANALYSIS: 9.5,
             TaskType.CODING: 8.5,
@@ -117,7 +121,9 @@ VERIFIED_MODEL_METADATA: Dict[Tuple[str, str], Dict] = {
             is_local=False,
         ),
         "latency_tier": "low",
+        "supports_vision": True,
         "heuristic_alignment": {
+            TaskType.VISION: 9.5,
             TaskType.CODING: 8.5,
             TaskType.MATH: 8.0,
             TaskType.GENERAL: 8.0,
@@ -139,7 +145,9 @@ VERIFIED_MODEL_METADATA: Dict[Tuple[str, str], Dict] = {
             is_local=False,
         ),
         "latency_tier": "standard",
+        "supports_vision": True,
         "heuristic_alignment": {
+            TaskType.VISION: 9.8,
             TaskType.COMPLEX_REASONING: 9.5,
             TaskType.CODING: 9.5,
             TaskType.MATH: 9.0,
@@ -242,13 +250,41 @@ class ModelCapabilityRegistry:
             self._cache_timestamp = 0.0
             logger.info("Model capability registry cache invalidated.")
 
+    def _get_static_baseline_profiles(self) -> List[ModelProfile]:
+        """Provide verified static model profiles when discovery cache is empty."""
+        baseline: List[ModelProfile] = []
+        for (pid, mid), data in VERIFIED_MODEL_METADATA.items():
+            is_local = (pid == "ollama")
+            p = ModelProfile(
+                provider_id=pid,
+                model_id=mid,
+                display_name=data.get("display_name", mid),
+                is_local=is_local,
+                context_window=data.get("context_window", 128000),
+                pricing=data.get("pricing", ModelPricing(is_local=is_local)),
+                latency_tier=data.get("latency_tier", "standard"),
+                heuristic_alignment=dict(data.get("heuristic_alignment", {})),
+                supports_vision=data.get("supports_vision", False),
+                is_deprecated=False,
+                is_available=True,
+                description=data.get("description", ""),
+            )
+            baseline.append(p)
+        return baseline
+
     def get_cached_models(self, provider_id: Optional[str] = None) -> List[ModelProfile]:
         """Thread-safe non-blocking retrieval of currently cached models.
 
         Safe to call from the GUI thread. If the cache is empty or expired, returns
-        whatever is currently cached (or empty list) without performing network calls.
+        verified baseline profiles without performing network calls.
         """
         with self._lock:
+            if not self._cache:
+                baseline = self._get_static_baseline_profiles()
+                if provider_id:
+                    return [m for m in baseline if m.provider_id.lower() == provider_id.lower()]
+                return baseline
+
             if provider_id:
                 return list(self._cache.get(provider_id.lower(), []))
             all_models = []
@@ -315,9 +351,15 @@ class ModelCapabilityRegistry:
             d_mid in mid.lower() for d_pid, d_mid in DEPRECATED_MODELS if d_pid == pid
         )
 
+        is_vision = (
+            pid == "gemini"
+            or any(k in mid.lower() for k in ["vision", "llava", "4o", "gpt-4", "gemini", "minicpm-v", "bakllava", "vl"])
+        )
+
         verified = VERIFIED_MODEL_METADATA.get(lookup_key)
 
         if verified:
+            supports_vision = verified.get("supports_vision", is_vision)
             return ModelProfile(
                 provider_id=pid,
                 model_id=mid,
@@ -327,6 +369,7 @@ class ModelCapabilityRegistry:
                 pricing=verified.get("pricing", ModelPricing(is_local=is_local)),
                 latency_tier=verified.get("latency_tier", "standard"),
                 heuristic_alignment=dict(verified.get("heuristic_alignment", {})),
+                supports_vision=supports_vision,
                 is_deprecated=is_deprecated,
                 is_available=True,
                 description=verified.get("description", info.description or ""),
@@ -336,6 +379,8 @@ class ModelCapabilityRegistry:
         default_pricing = ModelPricing(is_local=is_local)
         # Neutral heuristic alignment fallback
         neutral_alignment = {t: 5.0 for t in TaskType}
+        if is_vision:
+            neutral_alignment[TaskType.VISION] = 9.0
 
         return ModelProfile(
             provider_id=pid,
@@ -346,6 +391,7 @@ class ModelCapabilityRegistry:
             pricing=default_pricing,
             latency_tier="unknown",
             heuristic_alignment=neutral_alignment,
+            supports_vision=is_vision,
             is_deprecated=is_deprecated,
             is_available=True,
             description=info.description or f"Dynamic model from {pid.title()}",
@@ -385,6 +431,8 @@ class ModelCapabilityRegistry:
                     continue
 
             if required_capability is not None:
+                if (required_capability == TaskType.VISION or str(required_capability).lower() == "vision") and not getattr(m, "supports_vision", False):
+                    continue
                 # If model has heuristic alignment below 4.0 for a required task, skip
                 score = m.heuristic_alignment.get(required_capability, 5.0)
                 if score < 4.0:

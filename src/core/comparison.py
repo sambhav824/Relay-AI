@@ -156,6 +156,8 @@ class ModelCompareWorker(QThread):
         parts: List[str] = []
         start_time = time.perf_counter()
         last_metadata: Optional[ResponseMetadata] = None
+        actual_provider_id = self.provider.provider_id
+        actual_model = self.model
         self.status_changed.emit(self.slot_id, "Connecting…")
 
         try:
@@ -188,6 +190,10 @@ class ModelCompareWorker(QThread):
 
                 if chunk.metadata:
                     last_metadata = chunk.metadata
+                    if chunk.metadata.extra.get("automatic_fallback_from"):
+                        parts.clear()
+                        actual_provider_id = chunk.metadata.provider_id
+                        actual_model = chunk.metadata.model
 
                 if chunk.delta:
                     parts.append(chunk.delta)
@@ -213,8 +219,8 @@ class ModelCompareWorker(QThread):
 
             tps = (completion_tokens / total_elapsed) if (completion_tokens and total_elapsed > 0) else None
             cost = estimate_api_cost(
-                self.provider.provider_id,
-                self.model,
+                actual_provider_id,
+                actual_model,
                 prompt_tokens,
                 completion_tokens,
             )
@@ -231,8 +237,8 @@ class ModelCompareWorker(QThread):
 
             result = ComparisonSlotResult(
                 slot_id=self.slot_id,
-                provider_id=self.provider.provider_id,
-                model=self.model,
+                provider_id=actual_provider_id,
+                model=actual_model,
                 content=full_text,
                 is_success=True,
                 is_canceled=False,
@@ -366,4 +372,3 @@ class ComparisonCoordinator(QObject):
                     worker.wait(wait_ms)
 
         self.canceled.emit()
-

@@ -88,6 +88,7 @@ class RoutedChatWorker(QThread):
     final_success = Signal(str, str, str, list)  # (provider_id, model_id, response_text, messages_to_commit)
     final_failure = Signal(str, list)  # (summary_message, attempts_records)
     cancelled = Signal()  # ()
+    context_retrieved = Signal(list)  # (retrieved_chunks)
 
     def __init__(
         self,
@@ -97,6 +98,9 @@ class RoutedChatWorker(QThread):
         provider_manager: ProviderManager,
         timeout_sec: float = 60.0,
         parent: Optional[QObject] = None,
+        retriever: Optional[Any] = None,
+        prefer_offline: bool = False,
+        images: Optional[List[str]] = None,
     ):
         super().__init__(parent)
         self.decision = decision
@@ -104,6 +108,9 @@ class RoutedChatWorker(QThread):
         self.history = history
         self.provider_manager = provider_manager
         self.timeout_sec = timeout_sec
+        self.retriever = retriever
+        self.prefer_offline = prefer_offline
+        self.images = list(images) if images else []
         self._is_cancelled = False
 
     def cancel(self, wait_ms: int = 0) -> None:
@@ -142,7 +149,36 @@ class RoutedChatWorker(QThread):
             Message(role=m.role, content=m.content, timestamp=m.timestamp, metadata=dict(m.metadata or {}))
             for m in base_history
         ]
-        attempt_messages = clean_history + [Message(role=MessageRole.USER, content=self.prompt)]
+        # RAG context retrieval if hybrid retriever is configured
+        if self.retriever is not None and self.prompt:
+            try:
+                chunks = self.retriever.search(
+                    self.prompt,
+                    match_count=5,
+                    prefer_offline=self.prefer_offline,
+                )
+                if chunks:
+                    self.context_retrieved.emit(chunks)
+                    from src.context.retrieval import format_rag_context
+                    rag_text = format_rag_context(chunks)
+                    if rag_text:
+                        has_system = False
+                        for i, m in enumerate(clean_history):
+                            if m.role == MessageRole.SYSTEM:
+                                clean_history[i] = Message(
+                                    role=MessageRole.SYSTEM,
+                                    content=f"{m.content}\n\n{rag_text}",
+                                    timestamp=m.timestamp,
+                                    metadata=m.metadata,
+                                )
+                                has_system = True
+                                break
+                        if not has_system:
+                            clean_history.insert(0, Message(role=MessageRole.SYSTEM, content=rag_text))
+            except Exception as ret_err:
+                logger.warning("RoutedChatWorker RAG retrieval failed: %s", ret_err)
+
+        attempt_messages = clean_history + [Message(role=MessageRole.USER, content=self.prompt, images=self.images)]
 
         for attempt_idx, candidate in enumerate(candidates):
             # Check cooperative cancellation before starting attempt
@@ -153,6 +189,8 @@ class RoutedChatWorker(QThread):
             self.attempt_started.emit(candidate.provider_id, candidate.model_id, attempt_idx)
             attempt_start_time = time.perf_counter()
             partial_parts: List[str] = []
+            actual_provider_id = candidate.provider_id
+            actual_model_id = candidate.model_id
 
             try:
                 provider = self.provider_manager.get_provider(candidate.provider_id)
@@ -185,6 +223,18 @@ class RoutedChatWorker(QThread):
                         self.chunk_received.emit(delta)
 
                     if isinstance(chunk, StreamChunk):
+                        extra = chunk.metadata.extra if chunk.metadata else {}
+                        if extra.get("automatic_fallback_from"):
+                            partial_parts.clear()
+                            actual_provider_id = chunk.metadata.provider_id
+                            actual_model_id = chunk.metadata.model
+                            self.fallback_started.emit(
+                                candidate.provider_id,
+                                candidate.model_id,
+                                actual_provider_id,
+                                actual_model_id,
+                                attempt_idx + 1,
+                            )
                         self.stream_chunk.emit(chunk)
 
                 # Attempt completed successfully!
@@ -192,8 +242,8 @@ class RoutedChatWorker(QThread):
                 full_text = "".join(partial_parts)
 
                 record = RoutedAttemptRecord(
-                    provider_id=candidate.provider_id,
-                    model_id=candidate.model_id,
+                    provider_id=actual_provider_id,
+                    model_id=actual_model_id,
                     attempt_index=attempt_idx,
                     is_success=True,
                     is_cancelled=False,
@@ -209,8 +259,8 @@ class RoutedChatWorker(QThread):
                 ]
 
                 self.final_success.emit(
-                    candidate.provider_id,
-                    candidate.model_id,
+                    actual_provider_id,
+                    actual_model_id,
                     full_text,
                     messages_to_commit,
                 )
@@ -280,4 +330,3 @@ class RoutedChatWorker(QThread):
                     )
                     self.final_failure.emit(summary, attempts_records)
                     return
-
