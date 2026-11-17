@@ -20,6 +20,10 @@ import {
   fetchSavedConversations,
   saveConversationApi,
   deleteConversationApi,
+  getApiBase,
+  setCustomApiBase,
+  resetApiBase,
+  pingBackend,
 } from "../lib/api";
 
 type Tab = "dashboard" | "chat" | "routing" | "compare" | "teams" | "settings";
@@ -72,6 +76,12 @@ export default function RelayAIWeb() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string>("session_init");
   const [showHistoryDrawer, setShowHistoryDrawer] = useState<boolean>(true);
+
+  // Cross-Device Backend Connection State
+  const [customBackendUrl, setCustomBackendUrl] = useState<string>("");
+  const [activeBackendUrl, setActiveBackendUrl] = useState<string>("http://localhost:8000");
+  const [backendPingResult, setBackendPingResult] = useState<{ ok: boolean; latencyMs: number; error?: string } | null>(null);
+  const [isPingingBackend, setIsPingingBackend] = useState<boolean>(false);
 
   // Routing State
   const [routingPrompt, setRoutingPrompt] = useState<string>("");
@@ -238,6 +248,10 @@ export default function RelayAIWeb() {
     } catch {}
     setIsAuthLoaded(true);
 
+    const currentBase = getApiBase();
+    setActiveBackendUrl(currentBase);
+    setCustomBackendUrl(currentBase);
+
     fetchHealth().then(setHealthData).catch(() => {});
     fetchModels().then((m) => {
       setModels(m);
@@ -247,6 +261,41 @@ export default function RelayAIWeb() {
       }
     });
   }, []);
+
+  const handleTestBackend = async () => {
+    setIsPingingBackend(true);
+    setBackendPingResult(null);
+    try {
+      const result = await pingBackend(customBackendUrl);
+      setBackendPingResult({ ok: result.ok, latencyMs: result.latencyMs, error: result.error });
+      if (result.ok) {
+        setCustomApiBase(customBackendUrl);
+        setActiveBackendUrl(getApiBase());
+        fetchHealth().then(setHealthData).catch(() => {});
+        fetchModels().then(setModels).catch(() => {});
+      }
+    } finally {
+      setIsPingingBackend(false);
+    }
+  };
+
+  const handleSaveBackendUrl = () => {
+    setCustomApiBase(customBackendUrl);
+    setActiveBackendUrl(getApiBase());
+    fetchHealth().then(setHealthData).catch(() => {});
+    fetchModels().then(setModels).catch(() => {});
+    alert("Backend API URL updated: " + getApiBase());
+  };
+
+  const handleResetBackendUrl = () => {
+    resetApiBase();
+    const defaultUrl = getApiBase();
+    setCustomBackendUrl(defaultUrl);
+    setActiveBackendUrl(defaultUrl);
+    setBackendPingResult(null);
+    fetchHealth().then(setHealthData).catch(() => {});
+    fetchModels().then(setModels).catch(() => {});
+  };
 
   // Load and Restore Saved Chat Sessions
   useEffect(() => {
@@ -1702,6 +1751,90 @@ export default function RelayAIWeb() {
                   ) : (
                     <div className="text-gray-500">Checking provider status...</div>
                   )}
+                </div>
+              </div>
+
+              {/* Cloud Backend & Cross-Device Connectivity Card */}
+              <div className="p-5 rounded-xl border border-gray-700/50 bg-[#28292c]/40 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-bold flex items-center gap-2">
+                    <span>🌐</span> Cloud Backend & Cross-Device API
+                  </h4>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono flex items-center gap-1.5 ${
+                      backendPingResult?.ok
+                        ? "bg-green-900/40 text-green-400"
+                        : backendPingResult?.error
+                        ? "bg-red-900/40 text-red-400"
+                        : "bg-gray-800 text-gray-400"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        backendPingResult?.ok ? "bg-green-500 animate-pulse" : "bg-gray-500"
+                      }`}
+                    ></span>
+                    {backendPingResult?.ok ? `${backendPingResult.latencyMs}ms Connected` : "Active"}
+                  </span>
+                </div>
+
+                <div className="text-xs text-gray-400">
+                  Current API: <span className="font-mono text-white select-all">{activeBackendUrl}</span>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs text-gray-300 font-medium block">
+                    Backend API URL (Render web service, LAN IP, or custom domain):
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={customBackendUrl}
+                      onChange={(e) => setCustomBackendUrl(e.target.value)}
+                      placeholder="https://relay-ai-api.onrender.com"
+                      className="flex-1 px-3 py-2 rounded-lg bg-[#202124] border border-gray-700 text-xs text-white font-mono outline-none focus:border-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTestBackend}
+                      disabled={isPingingBackend}
+                      className="px-3 py-2 rounded-lg bg-gray-700/40 hover:bg-gray-700 text-xs font-medium text-white transition disabled:opacity-50"
+                    >
+                      {isPingingBackend ? "Testing..." : "Ping Backend"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveBackendUrl}
+                      className="px-3 py-2 rounded-lg bg-white text-black text-xs font-semibold hover:bg-gray-200 transition"
+                    >
+                      Save
+                    </button>
+                  </div>
+                  {backendPingResult && (
+                    <div
+                      className={`p-2.5 rounded-lg text-xs ${
+                        backendPingResult.ok
+                          ? "bg-green-950/40 border border-green-800/50 text-green-300"
+                          : "bg-red-950/40 border border-red-800/50 text-red-300"
+                      }`}
+                    >
+                      {backendPingResult.ok
+                        ? `✓ Successfully reached backend in ${backendPingResult.latencyMs}ms.`
+                        : `✗ Connection notice: ${backendPingResult.error}`}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-gray-500">
+                      Changes persist across browser reloads on this device.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleResetBackendUrl}
+                      className="text-[11px] text-gray-400 hover:text-white underline"
+                    >
+                      Reset to Default
+                    </button>
+                  </div>
                 </div>
               </div>
 
