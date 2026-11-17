@@ -58,11 +58,17 @@ class GeminiProvider(AIProvider):
 
     def has_credentials(self, credential_store: Optional[Any] = None) -> bool:
         """Check whether valid Gemini credentials exist without exposing the key."""
-        key = self._get_api_key()
-        if key:
+        if self._manual_api_key and str(self._manual_api_key).strip():
             return True
+        import os
+        for var_name in ("GEMINI_API_KEY", "GEMINI_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY"):
+            val = os.environ.get(var_name)
+            if val and val.strip():
+                return True
         store = credential_store or self.credential_store
-        return bool(store and store.has_api_key(self.provider_id))
+        if store and hasattr(store, "has_api_key"):
+            return bool(store.has_api_key(self.provider_id))
+        return False
 
     def _get_client(self):
         """Construct the official google-genai Client."""

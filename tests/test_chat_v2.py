@@ -110,8 +110,19 @@ class TestRelayAIChatV2(unittest.TestCase):
             app.processEvents()
 
         self.assertEqual(len(recorded_calls), 2)
-        self.assertEqual(recorded_calls[0], [{"role": "user", "content": "Turn 1 prompt"}])
-        self.assertEqual(recorded_calls[1], [
+        def to_dict_list(msgs):
+            out = []
+            for m in msgs:
+                role = getattr(m, "role", m.get("role") if isinstance(m, dict) else None)
+                role_str = role.value if hasattr(role, "value") else str(role).lower()
+                if role_str == "system":
+                    continue
+                content = getattr(m, "content", m.get("content") if isinstance(m, dict) else None)
+                out.append({"role": role_str, "content": content})
+            return out
+
+        self.assertEqual(to_dict_list(recorded_calls[0]), [{"role": "user", "content": "Turn 1 prompt"}])
+        self.assertEqual(to_dict_list(recorded_calls[1]), [
             {"role": "user", "content": "Turn 1 prompt"},
             {"role": "assistant", "content": "Turn 1 answer"},
             {"role": "user", "content": "Turn 2 prompt"}

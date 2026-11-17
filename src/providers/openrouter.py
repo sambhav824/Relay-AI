@@ -77,11 +77,17 @@ class OpenRouterProvider(AIProvider):
 
     def has_credentials(self, credential_store: Optional[Any] = None) -> bool:
         """Check whether valid OpenRouter credentials exist without exposing the key."""
-        key = self._get_api_key()
-        if key:
+        if self._manual_api_key and str(self._manual_api_key).strip():
             return True
+        import os
+        for var_name in ("OPENROUTER_API_KEY", "OPENROUTER_KEY"):
+            val = os.environ.get(var_name)
+            if val and val.strip():
+                return True
         store = credential_store or self.credential_store
-        return bool(store and store.has_api_key(self.provider_id))
+        if store and hasattr(store, "has_api_key"):
+            return bool(store.has_api_key(self.provider_id))
+        return False
 
     def _get_headers(self) -> Dict[str, str]:
         key = self._get_api_key()

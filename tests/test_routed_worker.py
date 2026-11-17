@@ -335,16 +335,16 @@ class TestRoutedWorker(unittest.TestCase):
         self.assertEqual(final_msgs[0].role, MessageRole.USER)
         self.assertEqual(final_msgs[0].content, prompt)
 
-        # Groq received 3 messages
+        # Groq received 4 messages (1 system prompt + 2 history + 1 prompt)
         groq_msgs = self.p_groq.recorded_calls[0]["messages"]
-        self.assertEqual(len(groq_msgs), 3)
-        self.assertEqual(groq_msgs[2].content, prompt)
+        self.assertEqual(len(groq_msgs), 4)
+        self.assertEqual(groq_msgs[-1].content, prompt)
 
-        # OpenAI fallback received 3 messages
+        # OpenAI fallback received 4 messages
         openai_msgs = self.p_openai.recorded_calls[0]["messages"]
-        self.assertEqual(len(openai_msgs), 3)
-        self.assertEqual(openai_msgs[2].content, prompt)
-        self.assertEqual([m.role for m in openai_msgs], [MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER])
+        self.assertEqual(len(openai_msgs), 4)
+        self.assertEqual(openai_msgs[-1].content, prompt)
+        self.assertEqual([m.role for m in openai_msgs], [MessageRole.SYSTEM, MessageRole.USER, MessageRole.ASSISTANT, MessageRole.USER])
 
     def test_conversation_history_remains_unchanged(self):
         """Supplied conversation history list and Message instances are never mutated."""

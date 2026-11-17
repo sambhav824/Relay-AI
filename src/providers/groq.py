@@ -58,11 +58,17 @@ class GroqProvider(AIProvider):
 
     def has_credentials(self, credential_store: Optional[Any] = None) -> bool:
         """Check whether valid Groq credentials exist without exposing the key."""
-        key = self._get_api_key()
-        if key:
+        if self._manual_api_key and str(self._manual_api_key).strip():
             return True
+        import os
+        for var_name in ("GROQ_API_KEY", "GROQ_KEY", "GROQ_API_TOKEN"):
+            val = os.environ.get(var_name)
+            if val and val.strip():
+                return True
         store = credential_store or self.credential_store
-        return bool(store and store.has_api_key(self.provider_id))
+        if store and hasattr(store, "has_api_key"):
+            return bool(store.has_api_key(self.provider_id))
+        return False
 
     def _get_client(self):
         """Construct the official groq.Groq client."""
