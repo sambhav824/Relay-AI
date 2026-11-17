@@ -120,6 +120,24 @@ class TestGroqProvider(unittest.TestCase):
         with self.assertRaises(ModelNotFoundError):
             self.provider._handle_exception(exc, "unknown-model")
 
+    def test_env_var_groq_api_key_support(self):
+        import os
+        with patch.dict(os.environ, {"GROQ_API_KEY": "gsk_test_env_key_123"}, clear=False):
+            prov = GroqProvider(credential_store=None)
+            self.assertEqual(prov._get_api_key(), "gsk_test_env_key_123")
+            self.assertTrue(prov.has_credentials())
+
+    def test_missing_api_key_clear_error_message(self):
+        import os
+        with patch.dict(os.environ, {}, clear=True):
+            empty_store = MagicMock(spec=CredentialStore)
+            empty_store.get_api_key.return_value = None
+            empty_store.has_api_key.return_value = False
+            prov = GroqProvider(credential_store=empty_store)
+            with self.assertRaises(ProviderAuthenticationError) as cm:
+                prov._get_client()
+            self.assertIn("GROQ_API_KEY in server environment variables", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

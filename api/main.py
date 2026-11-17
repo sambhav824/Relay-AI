@@ -31,6 +31,14 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+# Load server-side environment variables (.env in project root or current working dir)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(BASE_DIR, ".env"))
+    load_dotenv()
+except ImportError:
+    pass
+
 from src.core.message import Message
 from src.core.security import CredentialStore
 from src.providers.manager import get_default_provider_manager, ProviderManager
@@ -190,7 +198,7 @@ def health_check():
         "version": "1.0.0",
         "timestamp": time.time(),
         "providers": providers_status,
-        "supabase_configured": bool(os.environ.get("SUPABASE_URL") and os.environ.get("SUPABASE_ANON_KEY")),
+        "supabase_configured": bool(os.environ.get("SUPABASE_URL") and (os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_ANON_KEY"))),
     }
 
 
@@ -200,7 +208,7 @@ def health_check():
 KNOWN_MODELS = [
     {"id": "openai/gpt-oss-120b", "provider": "groq", "provider_name": "Groq LPU", "display_name": "GPT-OSS 120B", "context_window": 131072, "is_local": False, "supports_vision": False},
     {"id": "qwen/qwen3.8-27b", "provider": "groq", "provider_name": "Groq LPU", "display_name": "Qwen 3.8 27B", "context_window": 131072, "is_local": False, "supports_vision": True},
-    {"id": "llama-3.3-70b-versatile", "provider": "groq", "provider_name": "Groq LPU", "display_name": "Llama 3.3 70B", "context_window": 131072, "is_local": False, "supports_vision": False},
+    {"id": "openai/gpt-oss-20b", "provider": "groq", "provider_name": "Groq LPU", "display_name": "GPT-OSS 20B", "context_window": 131072, "is_local": False, "supports_vision": False},
     {"id": "gemini-3.5-flash-lite", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 3.5 Flash Lite", "context_window": 1048576, "is_local": False, "supports_vision": True},
     {"id": "gemini-3.5-flash", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 3.5 Flash", "context_window": 1048576, "is_local": False, "supports_vision": True},
     {"id": "gemini-3.8-flash", "provider": "gemini", "provider_name": "Google Gemini", "display_name": "Gemini 3.8 Flash", "context_window": 1048576, "is_local": False, "supports_vision": True},

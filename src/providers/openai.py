@@ -58,18 +58,39 @@ class OpenAIProvider(AIProvider):
         self.automatic_fallback_enabled = bool(enabled)
 
     def _get_api_key(self) -> Optional[str]:
-        """Fetch API key from manual override or Windows Credential Manager."""
-        if self._manual_api_key:
-            return self._manual_api_key.strip()
-        key = self.credential_store.get_api_key(self.provider_id)
-        return key.strip() if key else None
+        """Fetch API key from manual override, server environment, or CredentialStore."""
+        if self._manual_api_key and str(self._manual_api_key).strip():
+            return str(self._manual_api_key).strip()
+
+        # Check server environment variables directly (Render, Linux containers, Cloud)
+        import os
+        for var_name in ("OPENAI_API_KEY", "OPENAI_KEY"):
+            val = os.environ.get(var_name)
+            if val and val.strip():
+                return val.strip()
+
+        # Fallback to credential store (which checks env vars and OS keyring)
+        if self.credential_store:
+            key = self.credential_store.get_api_key(self.provider_id)
+            if key and key.strip():
+                return key.strip()
+
+        return None
+
+    def has_credentials(self, credential_store: Optional[Any] = None) -> bool:
+        """Check whether valid OpenAI credentials exist without exposing the key."""
+        key = self._get_api_key()
+        if key:
+            return True
+        store = credential_store or self.credential_store
+        return bool(store and store.has_api_key(self.provider_id))
 
     def _get_client(self):
         """Construct the official openai.OpenAI client."""
         api_key = self._get_api_key()
         if not api_key:
             raise ProviderAuthenticationError(
-                "OpenAI API key not found. Please configure your key in Settings or Windows Credential Manager.",
+                "OpenAI API key not found. Please configure OPENAI_API_KEY in server environment variables or via application Settings.",
                 provider_id=self.provider_id,
             )
         try:

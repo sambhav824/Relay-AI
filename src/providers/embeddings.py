@@ -150,10 +150,21 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return self._dimension
 
     def _get_api_key(self) -> Optional[str]:
-        if self._manual_api_key:
-            return self._manual_api_key.strip()
-        key = self.credential_store.get_api_key(self.provider_id)
-        return key.strip() if key else None
+        if self._manual_api_key and str(self._manual_api_key).strip():
+            return str(self._manual_api_key).strip()
+
+        import os
+        for var_name in ("OPENAI_API_KEY", "OPENAI_KEY"):
+            val = os.environ.get(var_name)
+            if val and val.strip():
+                return val.strip()
+
+        if self.credential_store:
+            key = self.credential_store.get_api_key(self.provider_id)
+            if key and key.strip():
+                return key.strip()
+
+        return None
 
     def _get_client(self) -> Any:
         if self._injected_client is not None:
@@ -162,7 +173,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         api_key = self._get_api_key()
         if not api_key:
             raise ProviderAuthenticationError(
-                "OpenAI API key not found. Please configure your key in Settings or Credential Manager.",
+                "OpenAI API key not found. Please configure OPENAI_API_KEY in server environment variables or via application Settings.",
                 provider_id=self.provider_id,
             )
 

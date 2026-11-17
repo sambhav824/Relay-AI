@@ -26,28 +26,34 @@ class CredentialStore:
             return False
 
     def get_api_key(self, provider_id: str) -> Optional[str]:
-        """Retrieve an API key for a given provider from the secure store or environment."""
+        """Retrieve an API key for a given provider from server environment or secure store."""
         if not provider_id:
             return None
         pid = provider_id.strip().lower()
-        # 1. Try OS Credential Manager
-        try:
-            import keyring
-            key = keyring.get_password(self.service_name, pid)
-            if key:
-                return key.strip()
-        except Exception as exc:
-            logger.debug("Keyring access skipped/failed: %s", type(exc).__name__)
 
-        # 2. Fallback to standard environment variables (Render, Linux, Docker, CI)
+        # 1. Prioritize server-side environment variables (Render, Linux containers, Docker, Cloud, .env)
         import os
         env_vars = [f"{pid.upper()}_API_KEY", f"{pid.upper()}_KEY"]
         if pid == "gemini":
-            env_vars.extend(["GOOGLE_API_KEY", "GEMINI_KEY"])
+            env_vars.extend(["GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY", "GEMINI_KEY"])
+        elif pid == "groq":
+            env_vars.extend(["GROQ_API_TOKEN"])
+        elif pid == "openai":
+            env_vars.extend(["OPENAI_KEY"])
+
         for var in env_vars:
             val = os.environ.get(var)
             if val and val.strip():
                 return val.strip()
+
+        # 2. Fall back to OS Credential Manager (Windows Credential Manager / macOS Keychain) for desktop app
+        try:
+            import keyring
+            key = keyring.get_password(self.service_name, pid)
+            if key and key.strip():
+                return key.strip()
+        except Exception as exc:
+            logger.debug("Keyring access skipped/failed: %s", type(exc).__name__)
 
         return None
 
