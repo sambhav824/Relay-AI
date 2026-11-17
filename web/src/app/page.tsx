@@ -13,9 +13,13 @@ import {
   authSignOut,
   ModelOption,
   ChatMessage,
+  ChatSession,
   RouteResponse,
   CompareResult,
   TeamStep,
+  fetchSavedConversations,
+  saveConversationApi,
+  deleteConversationApi,
 } from "../lib/api";
 
 type Tab = "dashboard" | "chat" | "routing" | "compare" | "teams" | "settings";
@@ -63,6 +67,11 @@ export default function RelayAIWeb() {
   const [chatInput, setChatInput] = useState<string>("");
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Chat Persistence & Sessions State
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState<string>("session_init");
+  const [showHistoryDrawer, setShowHistoryDrawer] = useState<boolean>(true);
 
   // Routing State
   const [routingPrompt, setRoutingPrompt] = useState<string>("");
@@ -239,9 +248,113 @@ export default function RelayAIWeb() {
     });
   }, []);
 
+  // Load and Restore Saved Chat Sessions
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, isStreaming]);
+    if (!isAuthLoaded) return;
+    const storageKey = `relay_sessions_${user?.id || "guest"}`;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed: ChatSession[] = JSON.parse(stored);
+        if (parsed.length > 0) {
+          setSessions(parsed);
+          const active = parsed[0];
+          setCurrentSessionId(active.id);
+          setChatMessages(active.messages);
+          if (active.provider) setSelectedProvider(active.provider);
+          if (active.model) setSelectedModel(active.model);
+          return;
+        }
+      }
+    } catch {}
+
+    // Initial default session if none exists
+    const defaultSession: ChatSession = {
+      id: "session_" + Date.now(),
+      title: "Welcome to Relay AI",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      provider: selectedProvider || "groq",
+      model: selectedModel || "openai/gpt-oss-120b",
+      messages: [
+        {
+          role: "assistant",
+          content: "Hello! I am Relay AI, your universal multi-model workspace. How can I assist you today?",
+        },
+      ],
+    };
+    setSessions([defaultSession]);
+    setCurrentSessionId(defaultSession.id);
+    setChatMessages(defaultSession.messages);
+  }, [user?.id, isAuthLoaded]);
+
+  const persistSessions = (updated: ChatSession[]) => {
+    setSessions(updated);
+    const storageKey = `relay_sessions_${user?.id || "guest"}`;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(updated));
+    } catch {}
+  };
+
+  const handleNewChat = () => {
+    const newSession: ChatSession = {
+      id: "session_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7),
+      title: "New Conversation",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      provider: selectedProvider,
+      model: selectedModel,
+      messages: [
+        {
+          role: "assistant",
+          content: "How can I assist you in this conversation?",
+        },
+      ],
+    };
+    const updated = [newSession, ...sessions];
+    persistSessions(updated);
+    setCurrentSessionId(newSession.id);
+    setChatMessages(newSession.messages);
+    saveConversationApi(newSession).catch(() => {});
+  };
+
+  const handleSelectSession = (session: ChatSession) => {
+    setCurrentSessionId(session.id);
+    setChatMessages(session.messages);
+    if (session.provider) setSelectedProvider(session.provider);
+    if (session.model) setSelectedModel(session.model);
+  };
+
+  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = sessions.filter((s) => s.id !== sessionId);
+    deleteConversationApi(sessionId).catch(() => {});
+    if (updated.length === 0) {
+      const fallback: ChatSession = {
+        id: "session_" + Date.now(),
+        title: "New Conversation",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        provider: selectedProvider,
+        model: selectedModel,
+        messages: [
+          {
+            role: "assistant",
+            content: "How can I assist you today?",
+          },
+        ],
+      };
+      persistSessions([fallback]);
+      setCurrentSessionId(fallback.id);
+      setChatMessages(fallback.messages);
+    } else {
+      persistSessions(updated);
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(updated[0].id);
+        setChatMessages(updated[0].messages);
+      }
+    }
+  };
 
   // Handle Send Chat
   const handleSendChat = async (e?: React.FormEvent) => {
@@ -303,11 +416,13 @@ export default function RelayAIWeb() {
     const assistantMsg: ChatMessage = { role: "assistant", content: "" };
     setChatMessages([...newDisplayHistory, assistantMsg]);
 
+    let accumulatedResponse = "";
     await streamChat(
       newApiHistory,
       selectedProvider,
       selectedModel,
       (delta) => {
+        accumulatedResponse += delta;
         setChatMessages((prev) => {
           const updated = [...prev];
           const lastIdx = updated.length - 1;
@@ -320,8 +435,41 @@ export default function RelayAIWeb() {
           return updated;
         });
       },
-      () => setIsStreaming(false),
+      () => {
+        setIsStreaming(false);
+        const finalHistory: ChatMessage[] = [
+          ...newDisplayHistory,
+          { role: "assistant", content: accumulatedResponse },
+        ];
+        setSessions((prev) => {
+          const next = prev.map((s) => {
+            if (s.id === currentSessionId) {
+              const autoTitle =
+                s.title === "New Conversation" || s.title === "Welcome to Relay AI"
+                  ? promptText.slice(0, 36) + (promptText.length > 36 ? "…" : "")
+                  : s.title;
+              const updatedSession: ChatSession = {
+                ...s,
+                title: autoTitle,
+                messages: finalHistory,
+                updatedAt: Date.now(),
+                provider: selectedProvider,
+                model: selectedModel,
+              };
+              saveConversationApi(updatedSession).catch(() => {});
+              return updatedSession;
+            }
+            return s;
+          });
+          const storageKey = `relay_sessions_${user?.id || "guest"}`;
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+      },
       (err) => {
+        setIsStreaming(false);
         setChatMessages((prev) => {
           const updated = [...prev];
           const lastIdx = updated.length - 1;
@@ -333,7 +481,6 @@ export default function RelayAIWeb() {
           }
           return updated;
         });
-        setIsStreaming(false);
       }
     );
   };
@@ -735,9 +882,9 @@ export default function RelayAIWeb() {
 
                 <div className={`p-4 rounded-2xl border ${isDarkMode ? "bg-[#28292c]/40 border-gray-700/40" : "bg-white border-gray-200 shadow-sm"}`}>
                   <div className="text-base mb-1">🎙</div>
-                  <h4 className="text-xs font-bold mb-1">Speech & Documents</h4>
+                  <h4 className="text-xs font-bold mb-1">Speech & Multimodal</h4>
                   <p className="text-[11px] text-gray-400 leading-normal">
-                    Real-time speech-to-text dictation, camera capture, and document parsing (PDF, DOCX, Code).
+                    Real-time speech-to-text dictation, camera capture, and photo attachments.
                   </p>
                 </div>
               </div>
@@ -1000,9 +1147,108 @@ export default function RelayAIWeb() {
 
           {/* 2. AI CHAT */}
           {activeTab === "chat" && (
-            <div className="flex flex-col h-[calc(100vh-8.5rem)]">
-              {/* Message Transcript Area */}
-              <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+            <div className="flex h-[calc(100vh-8.5rem)] gap-4">
+              {/* Collapsible Saved Chats Drawer */}
+              {showHistoryDrawer && (
+                <div
+                  className={`w-64 shrink-0 rounded-2xl border flex flex-col p-3 transition-all ${
+                    isDarkMode ? "bg-[#1b1c1e] border-gray-800" : "bg-white border-gray-200 shadow-sm"
+                  }`}
+                >
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-700/20">
+                    <span className="text-xs font-bold uppercase tracking-wider text-gray-400">Saved Chats</span>
+                    <button
+                      onClick={handleNewChat}
+                      className="px-2.5 py-1 rounded-lg bg-white text-black font-semibold text-xs hover:bg-gray-200 transition flex items-center gap-1 shadow-sm"
+                      title="Start a new chat session"
+                    >
+                      <span>+</span> New
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto space-y-1.5 pr-1">
+                    {sessions.map((sess) => {
+                      const isActive = sess.id === currentSessionId;
+                      return (
+                        <div
+                          key={sess.id}
+                          onClick={() => handleSelectSession(sess)}
+                          className={`group w-full p-2.5 rounded-xl text-left cursor-pointer transition flex items-center justify-between text-xs ${
+                            isActive
+                              ? isDarkMode
+                                ? "bg-[#36454F] text-white font-medium"
+                                : "bg-[#202124] text-white font-medium"
+                              : isDarkMode
+                              ? "text-gray-300 hover:bg-[#28292c]"
+                              : "text-gray-700 hover:bg-gray-100"
+                          }`}
+                        >
+                          <div className="truncate flex-1 pr-2">
+                            <div className="truncate font-medium">{sess.title || "New Conversation"}</div>
+                            <div className="text-[10px] text-gray-400 opacity-80">
+                              {new Date(sess.updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · {sess.messages.length} msgs
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => handleDeleteSession(sess.id, e)}
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-gray-400 transition"
+                            title="Delete conversation"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Main Chat Interface */}
+              <div className="flex-1 flex flex-col min-w-0">
+                {/* Chat Top Controls Bar */}
+                <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-700/20">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowHistoryDrawer(!showHistoryDrawer)}
+                      className="px-2.5 py-1 rounded-lg border border-gray-700/40 text-xs font-medium hover:bg-gray-700/20 transition flex items-center gap-1.5"
+                      title="Toggle Saved Chats sidebar"
+                    >
+                      <span>💬</span>
+                      <span>{showHistoryDrawer ? "Hide History" : `Saved Chats (${sessions.length})`}</span>
+                    </button>
+                    <button
+                      onClick={handleNewChat}
+                      className="px-2.5 py-1 rounded-lg bg-gray-700/30 hover:bg-gray-700/50 text-xs font-medium transition"
+                      title="Start a new chat"
+                    >
+                      + New Chat
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-gray-400 hidden sm:inline">Engine:</span>
+                    <select
+                      value={`${selectedProvider}:${selectedModel}`}
+                      onChange={(e) => {
+                        const [p, m] = e.target.value.split(":");
+                        setSelectedProvider(p);
+                        setSelectedModel(m);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-xs outline-none border ${
+                        isDarkMode ? "bg-[#28292c] border-gray-700 text-white" : "bg-white border-gray-300 text-gray-900"
+                      }`}
+                    >
+                      {models.map((m) => (
+                        <option key={`${m.provider}:${m.id}`} value={`${m.provider}:${m.id}`}>
+                          {m.provider_name} · {m.display_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Message Transcript Area */}
+                <div className="flex-1 overflow-y-auto space-y-4 pr-2">
                 {chatMessages.map((msg, idx) => (
                   <div
                     key={idx}
@@ -1109,7 +1355,7 @@ export default function RelayAIWeb() {
                           ? "text-gray-300 hover:bg-[#36373b]"
                           : "text-gray-600 hover:bg-gray-200"
                       }`}
-                      title="Attach camera capture, photos, or documents"
+                      title="Attach photos or camera capture"
                     >
                       +
                     </button>
@@ -1222,6 +1468,7 @@ export default function RelayAIWeb() {
                   </span>
                 </div>
               </form>
+              </div>
             </div>
           )}
 

@@ -670,7 +670,7 @@ class MainWindow(QMainWindow):
         self.btn_attach = QPushButton("+")
         self.btn_attach.setObjectName("InputAddBtn")
         self.btn_attach.setFixedSize(32, 32)
-        self.btn_attach.setToolTip("Attach photos, camera capture, or documents")
+        self.btn_attach.setToolTip("Attach photos or camera capture")
         self.btn_attach.clicked.connect(self._on_attach_clicked)
         input_layout.addWidget(self.btn_attach, 0)
 

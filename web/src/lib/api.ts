@@ -19,6 +19,16 @@ export interface ChatMessage {
   images?: string[];
 }
 
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  provider: string;
+  model: string;
+  messages: ChatMessage[];
+}
+
 export interface RouteResponse {
   task_type: string;
   complexity: string;
@@ -228,5 +238,40 @@ export async function authSignOut() {
   if (typeof window !== "undefined") {
     localStorage.removeItem("relay_user");
     localStorage.removeItem("relay_token");
+  }
+}
+
+export async function fetchSavedConversations(): Promise<ChatSession[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/conversations`, { cache: "no-store" });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.conversations || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function saveConversationApi(session: ChatSession): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/conversations`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(session),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function deleteConversationApi(conversationId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/conversations/${conversationId}`, {
+      method: "DELETE",
+    });
+    return res.ok;
+  } catch {
+    return false;
   }
 }

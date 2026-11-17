@@ -39,6 +39,19 @@ from src.routing.registry import ModelCapabilityRegistry
 from src.routing.router import ModelRouter
 from src.routing.types import RoutingStrategy, TaskType
 
+# Initialize Context Repository for local & cloud persistent conversations
+try:
+    from src.context.db.connection import initialize_database
+    from src.context.repository import ContextRepository
+    from src.context.sync.queue import SyncQueueManager
+    _db = initialize_database()
+    _conn = _db.get_connection()
+    _sync_queue = SyncQueueManager(_conn)
+    context_repo = ContextRepository(_conn, sync_queue=_sync_queue, default_user_id="local")
+except Exception as _repo_init_err:
+    logger.warning("Could not initialize local context repository in API: %s", _repo_init_err)
+    context_repo = None
+
 logger = logging.getLogger("RelayAI.API")
 logging.basicConfig(level=logging.INFO)
 
@@ -107,6 +120,15 @@ class AuthLoginRequest(BaseModel):
 class AuthSignupRequest(BaseModel):
     email: str
     password: str
+
+
+class SaveConversationRequest(BaseModel):
+    id: Optional[str] = None
+    title: str = "New Conversation"
+    provider: Optional[str] = "groq"
+    model: Optional[str] = "openai/gpt-oss-120b"
+    messages: List[ChatMessage] = []
+    user_id: Optional[str] = "local"
 
 
 # -----------------------------------------------------------------------------
@@ -483,6 +505,105 @@ def auth_signup(req: AuthSignupRequest):
         "token": "relay_session_token_ok",
         "notice": "Signed in with local fallback session.",
     }
+
+
+# -----------------------------------------------------------------------------
+# Conversation Persistence Endpoints
+# -----------------------------------------------------------------------------
+@app.get("/api/conversations")
+def list_conversations(user_id: Optional[str] = None):
+    if not context_repo:
+        return {"conversations": []}
+    try:
+        convs = context_repo.list_conversations()
+        result = []
+        for c in convs:
+            cid = c.get("id")
+            msgs = context_repo.get_messages(cid)
+            result.append({
+                "id": cid,
+                "title": c.get("title") or "Conversation",
+                "createdAt": c.get("created_at"),
+                "updatedAt": c.get("updated_at"),
+                "model": c.get("model_id") or "openai/gpt-oss-120b",
+                "provider": "groq",
+                "messages": [{"role": m.get("role"), "content": m.get("content")} for m in msgs],
+            })
+        return {"conversations": result}
+    except Exception as exc:
+        logger.warning("Failed to list conversations: %s", exc)
+        return {"conversations": []}
+
+
+@app.get("/api/conversations/{conversation_id}")
+def get_conversation_endpoint(conversation_id: str):
+    if not context_repo:
+        raise HTTPException(status_code=503, detail="Context repository unavailable")
+    conv = context_repo.get_conversation(conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    msgs = context_repo.get_messages(conversation_id)
+    return {
+        "id": conv.get("id"),
+        "title": conv.get("title"),
+        "createdAt": conv.get("created_at"),
+        "updatedAt": conv.get("updated_at"),
+        "model": conv.get("model_id"),
+        "messages": [{"role": m.get("role"), "content": m.get("content")} for m in msgs],
+    }
+
+
+@app.post("/api/conversations")
+def save_conversation(req: SaveConversationRequest):
+    if not context_repo:
+        return {"id": req.id or "local_session", "saved": False}
+    try:
+        cid = req.id
+        if cid:
+            existing = context_repo.get_conversation(cid)
+            if not existing:
+                cid = context_repo.create_conversation(
+                    title=req.title,
+                    model_id=req.model,
+                    conversation_id=cid,
+                    user_id=req.user_id,
+                )
+        else:
+            cid = context_repo.create_conversation(
+                title=req.title,
+                model_id=req.model,
+                user_id=req.user_id,
+            )
+
+        # Clear existing messages in SQLite if updating to keep transcript in sync
+        context_repo.conn.execute("DELETE FROM messages WHERE conversation_id=?", (cid,))
+        context_repo.conn.commit()
+
+        for msg in req.messages:
+            context_repo.add_message(
+                conversation_id=cid,
+                role=msg.role,
+                content=msg.content,
+                model_id=req.model,
+                user_id=req.user_id,
+            )
+
+        return {"id": cid, "saved": True, "title": req.title}
+    except Exception as exc:
+        logger.error("Failed to save conversation: %s", exc)
+        return {"id": req.id, "saved": False, "error": str(exc)}
+
+
+@app.delete("/api/conversations/{conversation_id}")
+def delete_conversation_endpoint(conversation_id: str):
+    if not context_repo:
+        return {"deleted": False}
+    try:
+        ok = context_repo.delete_conversation(conversation_id)
+        return {"deleted": ok}
+    except Exception as exc:
+        logger.error("Failed to delete conversation: %s", exc)
+        return {"deleted": False, "error": str(exc)}
 
 
 if __name__ == "__main__":
